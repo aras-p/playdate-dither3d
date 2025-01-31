@@ -81,7 +81,6 @@ elseif(APPLE)
 		MACOSX_BUNDLE_BUNDLE_NAME "Render Test"
 		MACOSX_BUNDLE_BUNDLE_VERSION "0.1"
 		MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1"
-		MACOSX_BUNDLE_ICON_FILE "icon.png"
 	)
 else()
 	add_executable(${PLAYDATE_GAME_NAME} ${DEMO_SOURCES})
@@ -146,7 +145,6 @@ else()
 	add_custom_command(
 		TARGET ${PLAYDATE_GAME_NAME} PRE_LINK
 		COMMAND ${CMAKE_COMMAND} -E copy
-		${CMAKE_CURRENT_SOURCE_DIR}/Source/sys_img/icon.png
 		${CMAKE_CURRENT_SOURCE_DIR}/Source/BlueNoise.tga
         $<TARGET_FILE_DIR:${PLAYDATE_GAME_NAME}>/${DATA_DIR}
 	)
