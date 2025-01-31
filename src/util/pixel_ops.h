@@ -7,6 +7,9 @@
 extern uint8_t g_screen_buffer[];
 extern uint8_t g_screen_buffer_2x2sml[];
 
+extern uint8_t* s_dither4x4_r;
+extern uint8_t* s_dither4x4_g;
+
 void init_pixel_ops();
 void clear_screen_buffers();
 

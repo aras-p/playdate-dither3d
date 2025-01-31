@@ -12,6 +12,8 @@
 #include <stdlib.h>
 
 static uint8_t* s_blue_noise;
+uint8_t* s_dither4x4_r;
+uint8_t* s_dither4x4_g;
 
 uint8_t g_screen_buffer[SCREEN_X * SCREEN_Y];
 uint8_t g_screen_buffer_2x2sml[SCREEN_X/2 * SCREEN_Y/2];
@@ -104,11 +106,29 @@ int g_order_pattern_4x4[16][4] = {
 
 void init_pixel_ops()
 {
-	int bn_w, bn_h;
-	s_blue_noise = read_tga_file_grayscale("BlueNoise.tga", &bn_w, &bn_h);
-	if (bn_w != SCREEN_X || bn_h != SCREEN_Y) {
-		plat_free(s_blue_noise);
-		s_blue_noise = NULL;
+	{
+		int ww, hh;
+		s_blue_noise = read_tga_file_grayscale("BlueNoise.tga", &ww, &hh);
+		if (ww != SCREEN_X || hh != SCREEN_Y) {
+			plat_free(s_blue_noise);
+			s_blue_noise = NULL;
+		}
+	}
+	{
+		int ww, hh;
+		s_dither4x4_r = read_tga_file_grayscale("Dither3D_4x4-r.tga", &ww, &hh);
+		if (ww != 64 || hh != 1024) {
+			plat_free(s_dither4x4_r);
+			s_dither4x4_r = NULL;
+		}
+	}
+	{
+		int ww, hh;
+		s_dither4x4_g = read_tga_file_grayscale("Dither3D_4x4-g.tga", &ww, &hh);
+		if (ww != 64 || hh != 1) {
+			plat_free(s_dither4x4_g);
+			s_dither4x4_g = NULL;
+		}
 	}
 
 	memset(g_screen_buffer, 0xFF, sizeof(g_screen_buffer));
