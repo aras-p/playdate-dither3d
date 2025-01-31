@@ -28,13 +28,35 @@ static inline uint32_t swap(uint32_t n)
 #endif
 }
 
-#if !defined(MIN)
-#define MIN(a, b) (((a)<(b))?(a):(b))
-#endif
+static inline int min2(int a, int b)
+{
+	return a < b ? a : b;
+}
 
-#if !defined(MAX)
-#define MAX(a, b) (((a)>(b))?(a):(b))
-#endif
+static inline int max2(int a, int b)
+{
+	return a > b ? a : b;
+}
+
+static inline float min2f(float a, float b)
+{
+	return a < b ? a : b;
+}
+
+static inline float max2f(float a, float b)
+{
+	return a > b ? a : b;
+}
+
+static inline int min3(int a, int b, int c)
+{
+	return (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
+}
+
+static inline int max3(int a, int b, int c)
+{
+	return (a > b) ? ((a > c) ? a : c) : ((b > c) ? b : c);
+}
 
 #define M_PIf (3.14159265f)
 

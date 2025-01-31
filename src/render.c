@@ -100,7 +100,7 @@ void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2
 	int y = (int)p1->y;
 	int endy = (int)p2->y;
 	
-	if ( y >= SCREEN_Y || endy < 0 || MIN(p1->x, p2->x) >= SCREEN_X || MAX(p1->x, p2->x) < 0 )
+	if ( y >= SCREEN_Y || endy < 0 || min2f(p1->x, p2->x) >= SCREEN_X || max2f(p1->x, p2->x) < 0 )
 		return;
 	
 	int32_t x = (int32_t)(p1->x * (1<<16));
@@ -220,7 +220,7 @@ void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3
 	
 	sortTri(&p1, &p2, &p3);
 	
-	int endy = MIN(SCREEN_Y, (int)p3->y);
+	int endy = min2(SCREEN_Y, (int)p3->y);
 	
 	if ( p1->y > SCREEN_Y || endy < 0 )
 		return;
@@ -231,10 +231,10 @@ void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3
 	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y);
 	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y);
 
-	int32_t dx1 = MIN(sb, sc);
-	int32_t dx2 = MAX(sb, sc);
+	int32_t dx1 = min2(sb, sc);
+	int32_t dx2 = max2(sb, sc);
 	
-	fillRange(bitmap, rowstride, (int)p1->y, MIN(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, pattern);
+	fillRange(bitmap, rowstride, (int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, pattern);
 	
 	int dx = slope(p2->x, p2->y, p3->x, p3->y);
 	
@@ -304,7 +304,7 @@ void draw_triangle(const float3* p1, const float3* p2, const float3* p3, const u
 	// sort by y coord
 	sortTri(&p1, &p2, &p3);
 
-	int endy = MIN(SCREEN_Y, (int)p3->y);
+	int endy = min2(SCREEN_Y, (int)p3->y);
 
 	if (p1->y > SCREEN_Y || endy < 0)
 		return;
@@ -315,10 +315,10 @@ void draw_triangle(const float3* p1, const float3* p2, const float3* p3, const u
 	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y);
 	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y);
 
-	int32_t dx1 = MIN(sb, sc);
-	int32_t dx2 = MAX(sb, sc);
+	int32_t dx1 = min2(sb, sc);
+	int32_t dx2 = max2(sb, sc);
 
-	fill_range((int)p1->y, MIN(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, col);
+	fill_range((int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, col);
 
 	int dx = slope(p2->x, p2->y, p3->x, p3->y);
 

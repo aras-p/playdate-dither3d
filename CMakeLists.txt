@@ -90,7 +90,7 @@ endif()
 if(IS_PLAYDATE_OR_SIM)
 	include(${SDK}/C_API/buildsupport/playdate_game.cmake)
 else()
-	target_compile_definitions(${PLAYDATE_GAME_NAME} PRIVATE BUILD_PLATFORM_PC _CRT_SECURE_NO_WARNINGS)
+	target_compile_definitions(${PLAYDATE_GAME_NAME} PRIVATE BUILD_PLATFORM_PC _CRT_SECURE_NO_WARNINGS NOMINMAX)
 
 	set_property(TARGET ${PLAYDATE_GAME_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 

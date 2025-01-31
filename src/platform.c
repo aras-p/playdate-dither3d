@@ -142,6 +142,8 @@ int eventHandler(PlaydateAPI* pd, PDSystemEvent event, uint32_t arg)
 	{
 		s_pd = pd;
 
+		pd->display->setRefreshRate(50.0f);
+
 		const char* err;
 		s_font = pd->graphics->loadFont(kFontPath, &err);
 		if (s_font == NULL)
