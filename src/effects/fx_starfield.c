@@ -28,9 +28,7 @@ static void star_init(Star* s, uint32_t* rng)
 void fx_starfield_update(float start_time, float end_time, float alpha)
 {
 	float dt = G.time - G.prev_time;
-
-	if (G.ending)
-		alpha = 1.0f - (cosf(G.crank_angle_rad) * 0.5f + 0.5f);
+	alpha = 1.0f - (cosf(G.crank_angle_rad) * 0.5f + 0.5f);
 
 	float speed_a = alpha * 0.8f + 0.2f;
 	dt *= speed_a;
@@ -44,8 +42,7 @@ void fx_starfield_update(float start_time, float end_time, float alpha)
 	else
 	{
 		draw_count = (int)lerp(STARS_MID, STARS_END, (alpha - 0.5f) * 2.0f);
-		if (G.beat || G.ending)
-			plat_gfx_clear(kSolidColorWhite);
+		plat_gfx_clear(kSolidColorWhite);
 	}
 
 	for (int i = 0; i < draw_count; ++i)

@@ -273,7 +273,7 @@ static int CompareSphereDist(const void* a, const void* b)
 
 static void do_render(float crank_angle, float time, float start_time, float end_time, float alpha, uint8_t* framebuffer, int framebuffer_stride)
 {
-	float cangle = crank_angle + ((68 + time * 6.0f) * (G.ending ? 0.2f : 1.0f)) * (M_PIf / 180.0f);
+	float cangle = crank_angle + ((68 + time * 6.0f) * 1.0f) * (M_PIf / 180.0f);
 	float cs = cosf(cangle);
 	float ss = sinf(cangle);
 	float cam_dist = 4.0f;
@@ -284,13 +284,8 @@ static void do_render(float crank_angle, float time, float start_time, float end
 	for (int i = 0; i < kSphereCount; ++i)
 	{
 		float3 sp = s_SpheresOrig[i];
-		s_SphereVisible[i] = G.ending || time > kSphereBounces[i].x;
-		if (!G.ending)
-		{
-			float a_bounce = 1.0f - (time - kSphereBounces[i].x) / kSphereBounces[i].y;
-			sp.y = 1.0f + a_bounce * kSphereBounces[i].z;
-		}
-		if ((G.ending || time > kSphereRoll[i].x) && kSphereRoll[i].y != 0.0f)
+		s_SphereVisible[i] = true;
+		if (kSphereRoll[i].y != 0.0f)
 		{
 			float sphangle = (time - kSphereRoll[i].x) * kSphereRoll[i].y;
 			float sph_cs = cosf(sphangle);
@@ -341,12 +336,12 @@ static void do_render(float crank_angle, float time, float start_time, float end
 			g_screen_buffer[pix_idx] = val;
 		}
 	}
-	draw_dithered_screen(framebuffer, get_fade_bias(start_time, end_time));
+	draw_dithered_screen(framebuffer, 0);
 }
 
 void fx_raytrace_update(float start_time, float end_time, float alpha)
 {
-	do_render(G.crank_angle_rad, G.ending ? G.time : G.time - start_time, start_time, end_time, alpha, G.framebuffer, G.framebuffer_stride);
+	do_render(G.crank_angle_rad, G.time, start_time, end_time, alpha, G.framebuffer, G.framebuffer_stride);
 }
 
 void fx_raytrace_init()

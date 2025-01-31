@@ -51,6 +51,7 @@ set (DEMO_SOURCES
 	src/globals.c
 	src/globals.h
 	src/main.c
+	src/mathlib.c
 	src/mathlib.h
 	src/platform.c
 	src/platform.h
@@ -58,6 +59,7 @@ set (DEMO_SOURCES
 	src/effects/fx.h
 	src/effects/fx_plasma.c
 	src/effects/fx_prettyhip.c
+	src/effects/fx_meshes.c
 	src/effects/fx_raymarch.c
 	src/effects/fx_raytrace.c
 	src/effects/fx_starfield.c

@@ -177,3 +177,20 @@ static inline float3 v3_reflect(float3 v, float3 n)
 {
 	return v3_sub(v, v3_mulfl(n, 2 * v3_dot(v, n)));
 }
+
+float3 v3_tri_normal(const float3* p1, const float3* p2, const float3* p3);
+
+typedef struct xform
+{
+	float m[3][3];
+	float x;
+	float y;
+	float z;
+} xform;
+extern xform xform_identity;
+xform xform_make(float m11, float m12, float m13, float m21, float m22, float m23, float m31, float m32, float m33);
+xform xform_make_translate(float dx, float dy, float dz);
+xform xform_make_axis_angle(float angle, float3 axis);
+xform xform_multiply(const xform* l, const xform* r);
+float3 xform_transform_pt(const xform* m, float3 p);
+float xform_get_determinant(xform* m);

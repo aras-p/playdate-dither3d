@@ -198,14 +198,9 @@ void fx_plasma_update(float start_time, float end_time, float alpha)
 	s_plasma_pos1 += 7;
 	s_plasma_pos3 += 3;
 
-	if (G.ending)
-	{
-		s_plasma_pos2 = (int)(sinf(G.crank_angle_rad) * 764);
-		s_plasma_pos4 = (int)(sinf(G.crank_angle_rad) * 431);
-	}
-
-	int bias = (G.beat ? 50 : 0) + get_fade_bias(start_time, end_time);
-	draw_dithered_screen(G.framebuffer, bias);
+	s_plasma_pos2 = (int)(sinf(G.crank_angle_rad) * 764);
+	s_plasma_pos4 = (int)(sinf(G.crank_angle_rad) * 431);
+	draw_dithered_screen(G.framebuffer, 0);
 }
 
 void fx_plasma_init()

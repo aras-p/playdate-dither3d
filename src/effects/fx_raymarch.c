@@ -267,7 +267,7 @@ void fx_raymarch_update(float start_time, float end_time, float alpha)
 
 	float pulst = G.time * 5.0f;
 	st.puls_t_param = 0.0769f * sinf(pulst * 2.0f * -0.0708f);
-	st.puls_width_param = (0.08f - st.puls_t_param * 2.0f) * (G.beat ? 0.3f : 0.1f);
+	st.puls_width_param = (0.08f - st.puls_t_param * 2.0f) * 0.1f;
 
 	float puls_rot = pulst * 0.00564f + G.crank_angle_rad;
 	st.puls_sina = sinf(puls_rot);
@@ -287,7 +287,7 @@ void fx_raymarch_update(float start_time, float end_time, float alpha)
 	int transition_x = (int)(SCREEN_X / 4 * transition_in);
 	int transition_y = (int)(SCREEN_Y / 4 * transition_in);
 	bool section8 = section_idx == 8;
-	float divider_angle1 = G.ending ? G.crank_angle_rad : (section_alpha * M_PIf + (section8 ? M_PIf : 0.0f));
+	float divider_angle1 = G.crank_angle_rad;
 	float divider_angle2 = divider_angle1 + (M_PIf * 0.5f) * (section8 ? (1.0f+section_alpha) : 1.0f);
 	float divider_dx1 = cosf(divider_angle1);
 	float divider_dy1 = sinf(divider_angle1);

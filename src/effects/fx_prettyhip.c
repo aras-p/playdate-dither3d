@@ -142,6 +142,5 @@ void fx_prettyhip_update(float start_time, float end_time, float alpha)
 		}
 	}
 
-	int bias = (G.beat ? 50 : 0) + get_fade_bias(start_time, end_time);
-	draw_dithered_screen(G.framebuffer, bias);
+	draw_dithered_screen(G.framebuffer, 0);
 }
