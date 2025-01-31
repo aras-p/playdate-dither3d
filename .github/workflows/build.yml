@@ -1,0 +1,43 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v4
+      - name: prepare-linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libglu1-mesa-dev mesa-common-dev xorg-dev libasound-dev
+      - run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Debug ..
+          cmake --build . --clean-first
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --clean-first
+  emscripten:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: prepare
+        run: |
+          git clone https://github.com/emscripten-core/emsdk
+          cd emsdk
+          ./emsdk install 3.1.60
+          ./emsdk activate 3.1.60
+          cd ..
+      - name: build
+        run: |
+          mkdir build
+          cd build
+          cmake --preset emscripten-debug ..
+          cmake --build . --clean-first
+          cmake --preset emscripten-release ..
+          cmake --build . --clean-first
