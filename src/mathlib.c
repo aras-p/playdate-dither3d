@@ -25,8 +25,8 @@ xform xform_make_translate(float dx, float dy, float dz)
 xform xform_make_axis_angle(float angle, float3 axis)
 {
 	xform p;
-	float c = cosf(angle * M_PIf / 180);
-	float s = sinf(angle * M_PIf / 180);
+	float c = cosf(angle);
+	float s = sinf(angle);
 	float x = axis.x;
 	float y = axis.y;
 	float z = axis.z;

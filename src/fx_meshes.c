@@ -12,10 +12,32 @@
 
 #include "gen_scene_data.h"
 
+// -------- Test Plane
+static float3 g_mesh_TestPlane_vb[] = { // 4 verts
+  {-1.0f, 0.0f, -1.0f},
+  {-1.0f, 0.0f,  1.0f},
+  { 1.0f, 0.0f,  1.0f},
+  { 1.0f, 0.0f, -1.0f},
+};
+static uint16_t g_mesh_TestPlane_ib[] = { // 2 tris
+  0, 1, 2,
+  0, 2, 3,
+};
+static float g_mesh_TestPlane_uv[] = { // 6 UV coords
+	0, 0,
+	0, 1,
+	1, 1,
+	0, 0,
+	1, 1,
+	1, 0,
+};
+static Mesh g_mesh_TestPlane = { 4, g_mesh_TestPlane_vb, 2, g_mesh_TestPlane_ib, g_mesh_TestPlane_uv };
+
 static Scene s_scene;
 
+static bool s_draw_test = true;
 static bool s_draw_wire = true;
-static enum DrawStyle s_draw_style = Draw_Pattern;
+static enum DrawStyle s_draw_style = Draw_BluenoisePineda;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
 
@@ -52,17 +74,19 @@ void fx_meshes_update()
 	if (G.buttons_pressed & kPlatButtonUp)
 	{
 		s_draw_style--;
-		if (s_draw_style < 0)
+		if (s_draw_style < 0 || s_draw_style >= Draw_Count)
 			s_draw_style = Draw_Count - 1;
 	}
 	if (G.buttons_pressed & kPlatButtonDown)
 	{
 		s_draw_style++;
-		if (s_draw_style >= Draw_Count)
+		if (s_draw_style < 0 || s_draw_style >= Draw_Count)
 			s_draw_style = 0;
 	}
 	if (G.buttons_pressed & kPlatButtonA)
 		s_draw_wire = !s_draw_wire;
+	if (G.buttons_pressed & kPlatButtonB)
+		s_draw_test = !s_draw_test;
 
 	float cangle = G.crank_angle_rad;
 	float cs = cosf(cangle);
@@ -87,10 +111,21 @@ void fx_meshes_update()
 	else
 		plat_gfx_clear(kSolidColorWhite);
 
-	for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+	if (!s_draw_test)
 	{
-		int idx = s_object_order[i];
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, g_meshes[idx].mesh, &g_meshes[idx].tr, s_draw_style, s_draw_wire);
+		for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+		{
+			int idx = s_object_order[i];
+			scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, g_meshes[idx].mesh, &g_meshes[idx].tr, s_draw_style, s_draw_wire);
+		}
+	}
+	else
+	{
+		//scene_setCamera(&s_scene, (float3) { cs * 0.1f, 8.0f, ss * 0.1f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
+		//scene_setCamera(&s_scene, (float3) { 4.0f, 2.0f, 0.0f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
+		xform test_tr = xform_identity; //  xform_make_axis_angle(G.crank_angle_rad, (float3) { 0, 0, 1 });
+		test_tr.m[0][0] = test_tr.m[1][1] = test_tr.m[2][2] = 4.0f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &test_tr, s_draw_style, s_draw_wire);
 	}
 
 	if (s_draw_style == Draw_Bluenoise || s_draw_style == Draw_BluenoisePineda)
