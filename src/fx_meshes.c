@@ -82,7 +82,7 @@ void fx_meshes_update()
 	qsort(s_object_order, SCENE_OBJECT_COUNT, sizeof(s_object_order[0]), CompareZ);
 
 	// draw
-	if (s_draw_style == Draw_Bluenoise)
+	if (s_draw_style == Draw_Bluenoise || s_draw_style == Draw_BluenoisePineda)
 		clear_screen_buffers();
 	else
 		plat_gfx_clear(kSolidColorWhite);
@@ -93,11 +93,11 @@ void fx_meshes_update()
 		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, g_meshes[idx].mesh, &g_meshes[idx].tr, s_draw_style, s_draw_wire);
 	}
 
-	if (s_draw_style == Draw_Bluenoise)
+	if (s_draw_style == Draw_Bluenoise || s_draw_style == Draw_BluenoisePineda)
 		draw_dithered_screen(G.framebuffer, 0);
 
-	G.statval1 = SCENE_OBJECT_COUNT;
-	G.statval2 = s_draw_style;
+	G.statval1 = s_draw_style;
+	G.statval2 = s_draw_wire ? 1 : 0;
 }
 
 void fx_meshes_init()

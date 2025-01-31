@@ -45,8 +45,9 @@ void scene_setLight(Scene* scene, float3 light);
 void scene_setCenter(Scene* scene, float x, float y);
 
 enum DrawStyle {
-	Draw_Pattern = 0,
-	Draw_Bluenoise,
+	Draw_Pattern = 0, // 45fps
+	Draw_Bluenoise, // 26fps
+	Draw_BluenoisePineda, // 26fps
 	Draw_Count
 };
 

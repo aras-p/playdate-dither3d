@@ -299,7 +299,7 @@ static void fill_range(int y, int endy, int32_t* x1p, int32_t dx1, int32_t* x2p,
 	*x2p = x2;
 }
 
-void draw_triangle(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
+void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
 {
 	// sort by y coord
 	sortTri(&p1, &p2, &p3);
@@ -331,6 +331,107 @@ void draw_triangle(const float3* p1, const float3* p2, const float3* p3, const u
 	{
 		x2 = (int32_t)(p2->x * (1 << 16));
 		fill_range((int)p2->y, endy, &x1, dx1, &x2, dx, col);
+	}
+}
+
+// References: Fabian Giesen's blog / pouet.net posts:
+// - "The barycentric conspiracy" https://fgiesen.wordpress.com/2013/02/06/the-barycentric-conspirac/
+// - "Triangle rasterization in practice" https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
+// - "Optimizing the basic rasterizer" https://fgiesen.wordpress.com/2013/02/10/optimizing-the-basic-rasterizer/
+// - "Fast software rasteriser in JavaScript?" https://www.pouet.net/topic.php?which=8760&page=1#c408170 and https://gist.github.com/rygorous/2486101
+// - "Simple watertight triangle rasterizer" https://gist.github.com/rygorous/9b793cd21d876da928bf4c7f3e625908
+
+#define SUBPIXEL_SHIFT (4)
+#define SUBPIXEL_SCALE (1 << SUBPIXEL_SHIFT)
+#define BLOCKSIZE (8)
+
+static inline int det2x2(int a, int b, int c, int d)
+{
+	int r = a * d - b * c;
+	return r >> SUBPIXEL_SHIFT;
+}
+
+static inline int det2x2_fill_rule(int a, int b, int c, int d)
+{
+	int r = a * d + b * c; // Determinant
+	if (c > 0 || (c == 0 && a > 0)) r++; // Top-left fill rule
+	return (r - 1) >> SUBPIXEL_SHIFT;
+}
+
+static inline int to_fixed(float x)
+{
+	// -0.5f to place pixel centers at integer coords + 0.5
+	// +0.5f afterwards is rounding factor
+	return (int)((x - 0.5f) * SUBPIXEL_SCALE + 0.5f);
+}
+
+static int fixed_ceil(int x)
+{
+	return (x + SUBPIXEL_SCALE - 1) >> SUBPIXEL_SHIFT;
+}
+
+void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
+{
+	// convert coordinates to fixed point
+	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
+	int x2 = to_fixed(p2->x), y2 = to_fixed(p2->y);
+	int x3 = to_fixed(p3->x), y3 = to_fixed(p3->y);
+	//int x4 = to_fixed(p3->x), y4 = to_fixed(p4->y);
+	// check triangle winding order
+	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
+	if (det == 0)
+		return; // zero area
+	if (det > 0)
+		return; // wrong winding
+
+	// bounding box / clipping
+	int minx = max2(fixed_ceil(min3(x1, x2, x3)), 0);
+	int miny = max2(fixed_ceil(min3(y1, y2, y3)), 0);
+	int maxx = min2(fixed_ceil(max3(x1, x2, x3)), SCREEN_X);
+	int maxy = min2(fixed_ceil(max3(y1, y2, y3)), SCREEN_Y);
+	if (minx >= maxx || miny >= maxy)
+		return;
+
+	// Edge vectors
+	int dx12 = x1 - x2, dy12 = y2 - y1;
+	int dx23 = x2 - x3, dy23 = y3 - y2;
+	int dx31 = x3 - x1, dy31 = y1 - y3;
+	//int dx31 = x3 - x1, dy31 = y1 - y3; // Diagonal
+	//int dx34 = x3 - x4, dy34 = y4 - y3;
+	//int dx41 = x4 - x1, dy41 = y1 - y4;
+
+	// Edge functions
+	int minx_fx = minx << SUBPIXEL_SHIFT;
+	int miny_fx = miny << SUBPIXEL_SHIFT;
+	int c1 = det2x2_fill_rule(dx12, minx_fx - x1, dy12, miny_fx - y1);
+	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
+	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
+	//int cD = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3); // Diagonal
+	//int c3 = det2x2_fill_rule(dx34, minx_fx - x3, dy34, miny_fx - y3);
+	//int c4 = det2x2_fill_rule(dx41, minx_fx - x4, dy41, miny_fx - y4);
+
+	// Rasterize
+	for (int y = miny; y < maxy; ++y)
+	{
+		uint8_t* output = g_screen_buffer + y * SCREEN_X;
+		int cx1 = c1, cx2 = c2, cx3 = c3; // , cx4 = c4;
+		for (int x = minx; x < maxx; x++)
+		{
+			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
+			{
+				output[x] = col;
+			}
+			cx1 += dy12;
+			cx2 += dy23;
+			cx3 += dy31;
+			//cx3 += dy34;
+			//cx4 += dy41;
+		}
+		c1 += dx12;
+		c2 += dx23;
+		c3 += dx31;
+		//c3 += dx34;
+		//c4 += dx41;
 	}
 }
 
@@ -493,7 +594,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 	// cheap gamma adjust
 	//v = v * v;
 
-	if (style != Draw_Bluenoise)
+	if (style == Draw_Pattern)
 	{
 		int vi = (int)(32.99f * v);
 		if (vi > 32)
@@ -518,14 +619,35 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 		}
 	}
-	else
+	else if (style == Draw_Bluenoise)
 	{
 		// draw into byte buffer for blue noise thresholding
 		int col = (int)(v * 255.0f);
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle(p1, p2, p3, col);
+		draw_triangle_scanlines(p1, p2, p3, col);
+
+		if (wire)
+		{
+			col -= 128;
+			if (col < 0) col = 0;
+			int p1x = (int)p1->x, p1y = (int)p1->y;
+			int p2x = (int)p2->x, p2y = (int)p2->y;
+			int p3x = (int)p3->x, p3y = (int)p3->y;
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p1x, p1y, p2x, p2y, col);
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p2x, p2y, p3x, p3y, col);
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
+		}
+	}
+	else if (style == Draw_BluenoisePineda)
+	{
+		// draw into byte buffer for blue noise thresholding
+		int col = (int)(v * 255.0f);
+		if (col < 0) col = 0;
+		if (col > 255) col = 255;
+
+		draw_triangle_pineda(p1, p2, p3, col);
 
 		if (wire)
 		{
