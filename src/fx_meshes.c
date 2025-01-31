@@ -37,7 +37,7 @@ static Scene s_scene;
 
 static bool s_draw_test = true;
 static bool s_draw_wire = true;
-static enum DrawStyle s_draw_style = Draw_BluenoisePineda;
+static enum DrawStyle s_draw_style = Draw_Checker;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
 
@@ -106,7 +106,7 @@ void fx_meshes_update()
 	qsort(s_object_order, SCENE_OBJECT_COUNT, sizeof(s_object_order[0]), CompareZ);
 
 	// draw
-	if (s_draw_style == Draw_Bluenoise || s_draw_style == Draw_BluenoisePineda)
+	if (s_draw_style == Draw_Bluenoise)
 		clear_screen_buffers();
 	else
 		plat_gfx_clear(kSolidColorWhite);
@@ -128,7 +128,7 @@ void fx_meshes_update()
 		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &test_tr, s_draw_style, s_draw_wire);
 	}
 
-	if (s_draw_style == Draw_Bluenoise || s_draw_style == Draw_BluenoisePineda)
+	if (s_draw_style == Draw_Bluenoise)
 		draw_dithered_screen(G.framebuffer, 0);
 
 	G.statval1 = s_draw_style;

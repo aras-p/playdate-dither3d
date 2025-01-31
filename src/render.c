@@ -370,10 +370,9 @@ static int fixed_ceil(int x)
 	return (x + SUBPIXEL_SCALE - 1) >> SUBPIXEL_SHIFT;
 }
 
-#define PINEDA_INTERP_UVS 1
 #define PINEDA_INTERP_CORRECT 1
 
-void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t col)
+void draw_triangle_pineda(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t col)
 {
 	// convert coordinates to fixed point
 	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
@@ -406,7 +405,6 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
 	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
 
-#if PINEDA_INTERP_UVS
 	float uv1x = uvs[0], uv1y = uvs[1];
 	float uv2x = uvs[2], uv2y = uvs[3];
 	float uv3x = uvs[4], uv3y = uvs[5];
@@ -419,18 +417,16 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 #else
 	float bary_scale = 1.0f / (c1 + c2 + c3);
 #endif
-#endif
 
 	// Rasterize
 	for (int y = miny; y < maxy; ++y)
 	{
-		uint8_t* output = g_screen_buffer + y * SCREEN_X;
+		uint8_t* output = bitmap + y * rowstride;
 		int cx1 = c1, cx2 = c2, cx3 = c3;
 		for (int x = minx; x < maxx; x++)
 		{
 			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
 			{
-#if PINEDA_INTERP_UVS
 #if PINEDA_INTERP_CORRECT
 				float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
 #endif
@@ -439,17 +435,15 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 				float bar_3 = cx3 * bary_scale;
 				float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
 				float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
-#if 0
-				output[x] = (int)(u * 255.0f);
-#else
 				u = fract(u * 5.0f);
 				v = fract(v * 5.0f);
 				bool check = (u > 0.5f) != (v > 0.5f);
-				output[x] = check ? col : col / 2;
-#endif
-#else
-				output[x] = col;
-#endif
+				int byte_idx = x / 8;
+				int mask = 1 << (7 - (x & 7));
+				if (check)
+					output[byte_idx] &= ~mask;
+				else
+					output[byte_idx] |= mask;
 			}
 			cx1 += dy12;
 			cx2 += dy23;
@@ -666,25 +660,21 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
 		}
 	}
-	else if (style == Draw_BluenoisePineda)
+	else if (style == Draw_Checker)
 	{
 		// draw into byte buffer for blue noise thresholding
 		int col = (int)(v * 255.0f);
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle_pineda(p1, p2, p3, mesh->uvs + tri_index * 6, col);
+		draw_triangle_pineda(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col);
 
 		if (wire)
 		{
-			col -= 128;
-			if (col < 0) col = 0;
-			int p1x = (int)p1->x, p1y = (int)p1->y;
-			int p2x = (int)p2->x, p2y = (int)p2->y;
-			int p3x = (int)p3->x, p3y = (int)p3->y;
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p1x, p1y, p2x, p2y, col);
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p2x, p2y, p3x, p3y, col);
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
+			const uint8_t* pattern = (const uint8_t*)&patterns[0];
+			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 		}
 	}
 }

@@ -52,7 +52,8 @@ enum DrawStyle {
 	// 26fps simle (as bluenoise, just with halfspace raster)
 	// 17fps (20fps no wire) checker, no perspective correction
 	// 15fps (17fps no wire) checker, with perspective correction
-	Draw_BluenoisePineda,
+	// 18fps (20fps no wire) checker, with perspective, no blue noise just b/w
+	Draw_Checker,
 	Draw_Count
 };
 
