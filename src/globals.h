@@ -22,6 +22,8 @@ typedef struct Globals
 
 	// misc
 	uint32_t rng;
+	int statval1;
+	int statval2;
 
 	// input
 	uint32_t buttons_cur; // buttons currently pressed, bitmask of kButton*

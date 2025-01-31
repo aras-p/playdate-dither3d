@@ -55,16 +55,10 @@ set (DEMO_SOURCES
 	src/mathlib.h
 	src/platform.c
 	src/platform.h
-	src/effects/fx.c
-	src/effects/fx.h
-	src/effects/fx_plasma.c
-	src/effects/fx_prettyhip.c
-	src/effects/fx_meshes.c
-	src/effects/fx_raymarch.c
-	src/effects/fx_raytrace.c
-	src/effects/fx_starfield.c
-	src/mini3d/render.c
-	src/mini3d/render.h
+	src/render.c
+	src/render.h
+	src/fx_meshes.c
+	src/fx_meshes.h
 	src/util/pixel_ops.c
 	src/util/pixel_ops.h
 	src/util/image_loader.c

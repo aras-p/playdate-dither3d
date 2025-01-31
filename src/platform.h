@@ -32,7 +32,7 @@ typedef struct PlatFileMusicPlayer PlatFileMusicPlayer;
 void plat_gfx_clear(SolidColor color);
 uint8_t* plat_gfx_get_frame();
 void plat_gfx_mark_updated_rows(int start, int end);
-void plat_gfx_draw_stats(float par1);
+void plat_gfx_draw_stats(int par1, int par2);
 
 PlatBitmap* plat_gfx_load_bitmap(const char* file_path, const char** outerr);
 void plat_gfx_draw_bitmap(PlatBitmap* bitmap, int x, int y);

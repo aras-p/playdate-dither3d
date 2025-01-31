@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../mathlib.h"
+#include "mathlib.h"
 
 typedef struct Mesh {
 	int vertex_count;
@@ -39,4 +39,10 @@ void scene_setCamera(Scene* scene, float3 origin, float3 lookAt, float scale, fl
 void scene_setLight(Scene* scene, float3 light);
 void scene_setCenter(Scene* scene, float x, float y);
 
-void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* mesh, const xform* matrix);
+enum DrawStyle {
+	Draw_Pattern = 0,
+	Draw_Bluenoise,
+	Draw_Count
+};
+
+void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* mesh, const xform* matrix, enum DrawStyle style, bool wire);

@@ -6,10 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "render.h"
-#include "../platform.h"
-
-#define SCREEN_Y 240
-#define SCREEN_X 400
+#include "platform.h"
+#include "util/pixel_ops.h"
 
 static inline void
 _drawMaskPattern(uint32_t* p, uint32_t mask, uint32_t color)
@@ -252,6 +250,90 @@ void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3
 	}
 }
 
+static void draw_fragment(uint8_t* row, int x1, int x2, const uint8_t color)
+{
+	if (x2 < 0 || x1 >= SCREEN_X)
+		return;
+
+	if (x1 < 0)
+		x1 = 0;
+
+	if (x2 > SCREEN_X)
+		x2 = SCREEN_X;
+
+	if (x1 > x2)
+		return;
+
+	memset(row + x1, color, x2 - x1);
+}
+
+static void fill_range(int y, int endy, int32_t* x1p, int32_t dx1, int32_t* x2p, int32_t dx2, const uint8_t color)
+{
+	int32_t x1 = *x1p, x2 = *x2p;
+
+	if (endy < 0)
+	{
+		int dy = endy - y;
+		*x1p = x1 + dy * dx1;
+		*x2p = x2 + dy * dx2;
+		return;
+	}
+
+	if (y < 0)
+	{
+		x1 += -y * dx1;
+		x2 += -y * dx2;
+		y = 0;
+	}
+
+	while (y < endy)
+	{
+		draw_fragment(g_screen_buffer + y * SCREEN_X, (x1 >> 16), (x2 >> 16) + 1, color);
+
+		x1 += dx1;
+		x2 += dx2;
+		++y;
+	}
+
+	*x1p = x1;
+	*x2p = x2;
+}
+
+void draw_triangle(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
+{
+	// sort by y coord
+	sortTri(&p1, &p2, &p3);
+
+	int endy = MIN(SCREEN_Y, (int)p3->y);
+
+	if (p1->y > SCREEN_Y || endy < 0)
+		return;
+
+	int32_t x1 = (int32_t)(p1->x * (1 << 16));
+	int32_t x2 = x1;
+
+	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y);
+	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y);
+
+	int32_t dx1 = MIN(sb, sc);
+	int32_t dx2 = MAX(sb, sc);
+
+	fill_range((int)p1->y, MIN(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, col);
+
+	int dx = slope(p2->x, p2->y, p3->x, p3->y);
+
+	if (sb < sc)
+	{
+		x1 = (int32_t)(p2->x * (1 << 16));
+		fill_range((int)p2->y, endy, &x1, dx, &x2, dx2, col);
+	}
+	else
+	{
+		x2 = (int32_t)(p2->x * (1 << 16));
+		fill_range((int)p2->y, endy, &x1, dx1, &x2, dx, col);
+	}
+}
+
 void scene_init(Scene* scene)
 {
 	scene_setCamera(scene, (float3) { 0, 0, 0 }, (float3) { 0, 0, 1 }, 1.0, (float3) { 0, 1, 0 });
@@ -372,7 +454,7 @@ static Pattern patterns[] =
 	{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }
 };
 
-static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal)
+static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, enum DrawStyle style, bool wire)
 {
 	// If any vertex is behind the camera, skip it
 	if (p1->z <= 0 || p2->z <= 0 || p3->z <= 0)
@@ -411,33 +493,52 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 	// cheap gamma adjust
 	//v = v * v;
 
-	int vi = (int)(32.99f * v);
-
-	if (vi > 32)
-		vi = 32;
-	else if (vi < 0)
-		vi = 0;
-
-	// fill
-	//if (style & kRenderFilled)
+	if (style != Draw_Bluenoise)
 	{
-		const uint8_t* pattern = (const uint8_t*)&patterns[vi];
-		fillTriangle(bitmap, rowstride, p1, p2, p3, pattern);
-	}
+		int vi = (int)(32.99f * v);
+		if (vi > 32)
+			vi = 32;
+		else if (vi < 0)
+			vi = 0;
 
-	// edges
-	/*
-	if (style & kRenderWireframe)
-	{
-		//const uint8_t* color = patterns[0]; // 32: white, 0: black
-		vi -= 16;
-		if (vi < 0) vi = 0;
-		const uint8_t* pattern = (const uint8_t*)&patterns[vi];
-		drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-		drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-		drawLine(bitmap, rowstride, p3, p1, 1, pattern);
+		// fill
+		{
+			const uint8_t* pattern = (const uint8_t*)&patterns[vi];
+			fillTriangle(bitmap, rowstride, p1, p2, p3, pattern);
+		}
+		// wire
+		if (wire)
+		{
+			//const uint8_t* color = patterns[0]; // 32: white, 0: black
+			vi -= 16;
+			if (vi < 0) vi = 0;
+			const uint8_t* pattern = (const uint8_t*)&patterns[vi];
+			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
+		}
 	}
-	*/
+	else
+	{
+		// draw into byte buffer for blue noise thresholding
+		int col = (int)(v * 255.0f);
+		if (col < 0) col = 0;
+		if (col > 255) col = 255;
+
+		draw_triangle(p1, p2, p3, col);
+
+		if (wire)
+		{
+			col -= 128;
+			if (col < 0) col = 0;
+			int p1x = (int)p1->x, p1y = (int)p1->y;
+			int p2x = (int)p2->x, p2y = (int)p2->y;
+			int p3x = (int)p3->x, p3y = (int)p3->y;
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p1x, p1y, p2x, p2y, col);
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p2x, p2y, p3x, p3y, col);
+			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
+		}
+	}
 }
 
 
@@ -455,7 +556,7 @@ static int compareFaceZ(const void* a, const void* b)
 	return 0;
 }
 
-void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* mesh, const xform* matrix)
+void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* mesh, const xform* matrix, enum DrawStyle style, bool wire)
 {
 	// temporary buffers
 	if (scene->tmp_points_cap < mesh->vertex_count) {
@@ -509,6 +610,6 @@ void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* me
 		uint16_t idx0 = mesh->tris[fi * 3 + 0];
 		uint16_t idx1 = mesh->tris[fi * 3 + 1];
 		uint16_t idx2 = mesh->tris[fi * 3 + 2];
-		drawShapeFace(scene, buffer, rowstride, &scene->tmp_points[idx0], &scene->tmp_points[idx1], &scene->tmp_points[idx2], &scene->tmp_face_normals[fi]);
+		drawShapeFace(scene, buffer, rowstride, &scene->tmp_points[idx0], &scene->tmp_points[idx1], &scene->tmp_points[idx2], &scene->tmp_face_normals[fi], style, wire);
 	}
 }

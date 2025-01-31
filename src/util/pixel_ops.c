@@ -209,6 +209,8 @@ void draw_line(uint8_t* framebuffer, int width, int height, int x1, int y1, int 
 	int abs_dx = abs(dx);
 	int abs_dy = abs(dy);
 	int steps = MAX(abs_dx, abs_dy);
+	if (steps == 0)
+		return;
 
 	int xstep_fx = (dx << 16) / steps;
 	int ystep_fx = (dy << 16) / steps;

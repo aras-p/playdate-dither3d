@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Unlicense
 
-#include "../globals.h"
+#include "globals.h"
+#include "platform.h"
+#include "mathlib.h"
+#include "util/pixel_ops.h"
+#include "render.h"
 
-#include "../platform.h"
-#include "fx.h"
-#include "../mathlib.h"
-#include "../util/pixel_ops.h"
-#include "../mini3d/render.h"
+#include "fx_meshes.h"
 
 #include <stdlib.h>
 
@@ -98,6 +98,9 @@ uint16_t g_mesh_Cube_ib[] = { // 52 tris
 static Scene s_scene;
 static Mesh s_shape_plane;
 
+static bool s_draw_wire = true;
+static enum DrawStyle s_draw_style = Draw_Pattern;
+
 #define MAX_PLANES 500
 static int planeCount = 100;
 static xform planeXforms[MAX_PLANES];
@@ -117,8 +120,7 @@ static int CompareZ(const void* a, const void* b)
 	return 0;
 }
 
-
-void fx_meshes_update(float start_time, float end_time, float alpha)
+void fx_meshes_update()
 {
 	if (G.buttons_cur & kPlatButtonLeft)
 	{
@@ -132,6 +134,20 @@ void fx_meshes_update(float start_time, float end_time, float alpha)
 		if (planeCount > MAX_PLANES)
 			planeCount = MAX_PLANES;
 	}
+	if (G.buttons_pressed & kPlatButtonUp)
+	{
+		s_draw_style--;
+		if (s_draw_style < 0)
+			s_draw_style = Draw_Count - 1;
+	}
+	if (G.buttons_pressed & kPlatButtonDown)
+	{
+		s_draw_style++;
+		if (s_draw_style >= Draw_Count)
+			s_draw_style = 0;
+	}
+	if (G.buttons_pressed & kPlatButtonA)
+		s_draw_wire = !s_draw_wire;
 
 	uint32_t rng = 1;
 
@@ -169,12 +185,22 @@ void fx_meshes_update(float start_time, float end_time, float alpha)
 	qsort(planeOrder, planeCount, sizeof(planeOrder[0]), CompareZ);
 
 	// draw
-	plat_gfx_clear(kSolidColorWhite);
+	if (s_draw_style == Draw_Bluenoise)
+		clear_screen_buffers();
+	else
+		plat_gfx_clear(kSolidColorWhite);
+
 	for (int i = 0; i < planeCount; ++i)
 	{
 		int idx = planeOrder[i];
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &s_shape_plane, &planeXforms[idx]);
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &s_shape_plane, &planeXforms[idx], s_draw_style, s_draw_wire);
 	}
+
+	if (s_draw_style == Draw_Bluenoise)
+		draw_dithered_screen(G.framebuffer, 0);
+
+	G.statval1 = planeCount;
+	G.statval2 = s_draw_style;
 }
 
 void fx_meshes_init()

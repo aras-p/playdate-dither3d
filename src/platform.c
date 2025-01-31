@@ -42,11 +42,11 @@ void plat_gfx_mark_updated_rows(int start, int end)
 {
 	s_pd->graphics->markUpdatedRows(start, end);
 }
-void plat_gfx_draw_stats(float par1)
+void plat_gfx_draw_stats(int par1, int par2)
 {
-	s_pd->graphics->fillRect(0, 0, 40, 32, kColorWhite);
+	s_pd->graphics->fillRect(0, 0, 64, 32, kColorWhite);
 	char* buf;
-	int bufLen = s_pd->system->formatString(&buf, "t %i", (int)par1);
+	int bufLen = s_pd->system->formatString(&buf, "a:%i b:%i", par1, par2);
 	s_pd->graphics->setFont(s_font);
 	s_pd->graphics->drawText(buf, bufLen, kASCIIEncoding, 0, 16);
 	plat_free(buf);
@@ -281,10 +281,10 @@ static void draw_text(const char* msg, int bx, int by)
 	}
 }
 
-void plat_gfx_draw_stats(float par1)
+void plat_gfx_draw_stats(int par1, int par2)
 {
 	// clear rect to white
-	int rectx = 48;
+	int rectx = 80;
 	int recty = 16;
 	for (int y = 0; y < recty; ++y)
 	{
@@ -295,7 +295,7 @@ void plat_gfx_draw_stats(float par1)
 
 	// draw text
 	char buf[100];
-	snprintf(buf, sizeof(buf), "t %i", (int)par1);
+	snprintf(buf, sizeof(buf), "a:%i b:%i", par1, par2);
 	draw_text(buf, 1, 1);
 }
 
