@@ -45,9 +45,14 @@ void scene_setLight(Scene* scene, float3 light);
 void scene_setCenter(Scene* scene, float x, float y);
 
 enum DrawStyle {
-	Draw_Pattern = 0, // 45fps
-	Draw_Bluenoise, // 26fps (32 no wire)
-	Draw_BluenoisePineda, // 26fps simple, 17 uv checker (20 no wire)
+	// 45fps
+	Draw_Pattern = 0,
+	// 26fps (32 no wire)
+	Draw_Bluenoise, 
+	// 26fps simle (as bluenoise, just with halfspace raster)
+	// 17fps (20fps no wire) checker, no perspective correction
+	// 15fps (17fps no wire) checker, with perspective correction
+	Draw_BluenoisePineda,
 	Draw_Count
 };
 

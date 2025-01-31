@@ -371,6 +371,7 @@ static int fixed_ceil(int x)
 }
 
 #define PINEDA_INTERP_UVS 1
+#define PINEDA_INTERP_CORRECT 1
 
 void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t col)
 {
@@ -406,7 +407,18 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
 
 #if PINEDA_INTERP_UVS
+	float uv1x = uvs[0], uv1y = uvs[1];
+	float uv2x = uvs[2], uv2y = uvs[3];
+	float uv3x = uvs[4], uv3y = uvs[5];
+#if PINEDA_INTERP_CORRECT
+	// https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/perspective-correct-interpolation-vertex-attributes.html
+	float invz1 = 1.0f / p1->z, invz2 = 1.0f / p2->z, invz3 = 1.0f / p3->z;
+	uv1x *= invz1, uv1y *= invz1;
+	uv2x *= invz2, uv2y *= invz2;
+	uv3x *= invz3, uv3y *= invz3;
+#else
 	float bary_scale = 1.0f / (c1 + c2 + c3);
+#endif
 #endif
 
 	// Rasterize
@@ -419,15 +431,22 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
 			{
 #if PINEDA_INTERP_UVS
+#if PINEDA_INTERP_CORRECT
+				float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
+#endif
 				float bar_1 = cx1 * bary_scale;
 				float bar_2 = cx2 * bary_scale;
 				float bar_3 = cx3 * bary_scale;
-				float u = uvs[4] * bar_1 + uvs[0] * bar_2 + uvs[2] * bar_3;
-				float v = uvs[5] * bar_1 + uvs[1] * bar_2 + uvs[3] * bar_3;
+				float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
+				float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
+#if 0
+				output[x] = (int)(u * 255.0f);
+#else
 				u = fract(u * 5.0f);
 				v = fract(v * 5.0f);
 				bool check = (u > 0.5f) != (v > 0.5f);
 				output[x] = check ? col : col / 2;
+#endif
 #else
 				output[x] = col;
 #endif
