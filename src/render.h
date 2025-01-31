@@ -7,6 +7,7 @@ typedef struct Mesh {
 	const float3* vertices;
 	int tri_count;
 	const uint16_t* tris;
+	const float* uvs; // 6x float per triangle
 } Mesh;
 
 typedef struct Scene
@@ -29,6 +30,10 @@ typedef struct Scene
 	float* tmp_dist_table;
 } Scene;
 
+typedef struct MeshInstance {
+	const Mesh* mesh;
+	xform tr;
+} MeshInstance;
 
 void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, int thick, const uint8_t pattern[8]);
 void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const uint8_t pattern[8]);

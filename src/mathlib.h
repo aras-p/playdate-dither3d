@@ -182,10 +182,10 @@ float3 v3_tri_normal(const float3* p1, const float3* p2, const float3* p3);
 
 typedef struct xform
 {
-	float m[3][3];
 	float x;
 	float y;
 	float z;
+	float m[3][3];
 } xform;
 extern xform xform_identity;
 xform xform_make(float m11, float m12, float m13, float m21, float m22, float m23, float m31, float m32, float m33);

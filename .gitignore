@@ -8,3 +8,4 @@ pdex.elf
 .DS_Store
 emsdk/
 /out
+*.blend1

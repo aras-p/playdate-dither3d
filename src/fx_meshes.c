@@ -10,109 +10,24 @@
 
 #include <stdlib.h>
 
-float3 g_mesh_Cube_vb[] = { // 28 verts
-  {1.000000f, -1.000000f, 1.000000f},
-  {-1.000000f, -1.000000f, -1.000000f},
-  {-0.754643f, 0.700373f, 1.000000f},
-  {-0.654210f, -0.654210f, 2.619101f},
-  {-0.480073f, 0.111070f, 2.879520f},
-  {0.480073f, 0.111070f, 2.879520f},
-  {0.654210f, -0.654210f, 2.619101f},
-  {-1.000000f, -1.000000f, 1.000000f},
-  {0.754643f, 0.408254f, -1.529500f},
-  {1.000000f, -1.000000f, -1.000000f},
-  {0.754643f, 0.700373f, 1.000000f},
-  {-0.754643f, 0.408254f, -1.529500f},
-  {-1.283430f, -0.567080f, -1.000000f},
-  {-1.283430f, -0.567080f, 1.000000f},
-  {1.283430f, 0.050230f, -1.000000f},
-  {1.283430f, -0.567080f, -1.000000f},
-  {-1.283430f, 0.050230f, 1.000000f},
-  {1.283430f, 0.050230f, 1.000000f},
-  {1.283430f, -0.567080f, 1.000000f},
-  {-1.283430f, 0.050230f, -1.000000f},
-  {-3.291110f, -0.774914f, -1.192131f},
-  {-3.291110f, -0.774914f, -0.118306f},
-  {3.291110f, -0.447044f, -1.192131f},
-  {3.291110f, -0.774914f, -1.192131f},
-  {-3.291110f, -0.447044f, -0.118306f},
-  {3.291110f, -0.447044f, -0.118306f},
-  {3.291110f, -0.774914f, -0.118306f},
-  {-3.291110f, -0.447044f, -1.192131f},
-};
-uint16_t g_mesh_Cube_ib[] = { // 52 tris
-  8, 11, 2,
-  8, 2, 10,
-  1, 9, 0,
-  1, 0, 7,
-  1, 11, 8,
-  1, 8, 9,
-  6, 5, 4,
-  6, 4, 3,
-  2, 16, 13,
-  2, 13, 4,
-  7, 0, 6,
-  7, 6, 3,
-  10, 2, 4,
-  10, 4, 5,
-  2, 11, 19,
-  2, 19, 16,
-  9, 8, 14,
-  9, 14, 15,
-  4, 13, 7,
-  4, 7, 3,
-  14, 17, 25,
-  14, 25, 22,
-  18, 15, 23,
-  18, 23, 26,
-  11, 1, 12,
-  11, 12, 19,
-  0, 18, 5,
-  0, 5, 6,
-  1, 7, 13,
-  1, 13, 12,
-  0, 9, 15,
-  0, 15, 18,
-  8, 10, 17,
-  8, 17, 14,
-  18, 17, 10,
-  18, 10, 5,
-  21, 24, 27,
-  21, 27, 20,
-  23, 22, 25,
-  23, 25, 26,
-  17, 18, 26,
-  17, 26, 25,
-  15, 14, 22,
-  15, 22, 23,
-  16, 19, 27,
-  16, 27, 24,
-  19, 12, 20,
-  19, 20, 27,
-  13, 16, 24,
-  13, 24, 21,
-  12, 13, 21,
-  12, 21, 20,
-};
+#include "gen_scene_data.h"
 
 static Scene s_scene;
-static Mesh s_shape_plane;
 
 static bool s_draw_wire = true;
 static enum DrawStyle s_draw_style = Draw_Pattern;
 
-#define MAX_PLANES 500
-static int planeCount = 100;
-static xform planeXforms[MAX_PLANES];
-static float planeDistances[MAX_PLANES];
-static int planeOrder[MAX_PLANES];
+#define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
+
+static float s_object_distances[SCENE_OBJECT_COUNT];
+static int s_object_order[SCENE_OBJECT_COUNT];
 
 static int CompareZ(const void* a, const void* b)
 {
 	int ia = *(const int*)a;
 	int ib = *(const int*)b;
-	float za = planeDistances[ia];
-	float zb = planeDistances[ib];
+	float za = s_object_distances[ia];
+	float zb = s_object_distances[ib];
 	if (za < zb)
 		return +1;
 	if (za > zb)
@@ -124,15 +39,15 @@ void fx_meshes_update()
 {
 	if (G.buttons_cur & kPlatButtonLeft)
 	{
-		planeCount -= 1;
-		if (planeCount < 1)
-			planeCount = 1;
+		//planeCount -= 1;
+		//if (planeCount < 1)
+		//	planeCount = 1;
 	}
 	if (G.buttons_cur & kPlatButtonRight)
 	{
-		planeCount += 1;
-		if (planeCount > MAX_PLANES)
-			planeCount = MAX_PLANES;
+		//planeCount += 1;
+		//if (planeCount > MAX_PLANES)
+		//	planeCount = MAX_PLANES;
 	}
 	if (G.buttons_pressed & kPlatButtonUp)
 	{
@@ -149,40 +64,22 @@ void fx_meshes_update()
 	if (G.buttons_pressed & kPlatButtonA)
 		s_draw_wire = !s_draw_wire;
 
-	uint32_t rng = 1;
-
 	float cangle = G.crank_angle_rad;
 	float cs = cosf(cangle);
 	float ss = sinf(cangle);
 	scene_setCamera(&s_scene, (float3) { cs * 8.0f, 3.0f, ss * 8.0f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
 
-	// position and sort planes
-	for (int i = 0; i < planeCount; ++i)
+	// sort the objects
+	for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
 	{
-		float px = ((XorShift32(&rng) & 63) - 31.5f);
-		float py = ((XorShift32(&rng) & 15) - 7.5f);
-		float pz = ((XorShift32(&rng) & 63) - 31.5f);
-		float rot = (XorShift32(&rng) % 360) * 1.0f;
-		float rx = ((XorShift32(&rng) & 63) - 31.5f);
-		float ry = 60;
-		float rz = ((XorShift32(&rng) & 63) - 31.5f);
-		if (i == 0) {
-			px = py = pz = 0.0f;
-			rot = 0;
-			rx = 0;
-			ry = 1;
-			rz = 0;
-		}
-		planeXforms[i] = xform_make_axis_angle(rot, (float3) { rx, ry, rz });
-		planeXforms[i].x = px;
-		planeXforms[i].y = py;
-		planeXforms[i].z = pz;
-		//planeXforms[i] = mtx_make_translate(px, py, pz);
-		float3 center = xform_transform_pt(&s_scene.camera, xform_transform_pt(&planeXforms[i], (float3) {0,0,0}));
-		planeDistances[i] = center.z;
-		planeOrder[i] = i;
+		float3 center_local = (float3){ g_meshes[i].tr.x, g_meshes[i].tr.y, g_meshes[i].tr.z };
+		float3 center = xform_transform_pt(&s_scene.camera, center_local);
+		if (g_meshes[i].mesh == &g_mesh_Ground)
+			center.z = 1000.0f;
+		s_object_distances[i] = center.z;
+		s_object_order[i] = i;
 	}
-	qsort(planeOrder, planeCount, sizeof(planeOrder[0]), CompareZ);
+	qsort(s_object_order, SCENE_OBJECT_COUNT, sizeof(s_object_order[0]), CompareZ);
 
 	// draw
 	if (s_draw_style == Draw_Bluenoise)
@@ -190,16 +87,16 @@ void fx_meshes_update()
 	else
 		plat_gfx_clear(kSolidColorWhite);
 
-	for (int i = 0; i < planeCount; ++i)
+	for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
 	{
-		int idx = planeOrder[i];
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &s_shape_plane, &planeXforms[idx], s_draw_style, s_draw_wire);
+		int idx = s_object_order[i];
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, g_meshes[idx].mesh, &g_meshes[idx].tr, s_draw_style, s_draw_wire);
 	}
 
 	if (s_draw_style == Draw_Bluenoise)
 		draw_dithered_screen(G.framebuffer, 0);
 
-	G.statval1 = planeCount;
+	G.statval1 = SCENE_OBJECT_COUNT;
 	G.statval2 = s_draw_style;
 }
 
@@ -207,9 +104,4 @@ void fx_meshes_init()
 {
 	scene_init(&s_scene);
 	scene_setLight(&s_scene, (float3) { 0.3f, 1.0f, 0.3f });
-
-	s_shape_plane.vertices = g_mesh_Cube_vb;
-	s_shape_plane.vertex_count = sizeof(g_mesh_Cube_vb) / sizeof(g_mesh_Cube_vb[0]);
-	s_shape_plane.tris = g_mesh_Cube_ib;
-	s_shape_plane.tri_count = sizeof(g_mesh_Cube_ib) / sizeof(g_mesh_Cube_ib[0]) / 3;
 }
