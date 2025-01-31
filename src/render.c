@@ -370,13 +370,14 @@ static int fixed_ceil(int x)
 	return (x + SUBPIXEL_SCALE - 1) >> SUBPIXEL_SHIFT;
 }
 
-void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
+#define PINEDA_INTERP_UVS 1
+
+void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t col)
 {
 	// convert coordinates to fixed point
 	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
 	int x2 = to_fixed(p2->x), y2 = to_fixed(p2->y);
 	int x3 = to_fixed(p3->x), y3 = to_fixed(p3->y);
-	//int x4 = to_fixed(p3->x), y4 = to_fixed(p4->y);
 	// check triangle winding order
 	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
 	if (det == 0)
@@ -396,9 +397,6 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 	int dx12 = x1 - x2, dy12 = y2 - y1;
 	int dx23 = x2 - x3, dy23 = y3 - y2;
 	int dx31 = x3 - x1, dy31 = y1 - y3;
-	//int dx31 = x3 - x1, dy31 = y1 - y3; // Diagonal
-	//int dx34 = x3 - x4, dy34 = y4 - y3;
-	//int dx41 = x4 - x1, dy41 = y1 - y4;
 
 	// Edge functions
 	int minx_fx = minx << SUBPIXEL_SHIFT;
@@ -406,32 +404,41 @@ void draw_triangle_pineda(const float3* p1, const float3* p2, const float3* p3, 
 	int c1 = det2x2_fill_rule(dx12, minx_fx - x1, dy12, miny_fx - y1);
 	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
 	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
-	//int cD = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3); // Diagonal
-	//int c3 = det2x2_fill_rule(dx34, minx_fx - x3, dy34, miny_fx - y3);
-	//int c4 = det2x2_fill_rule(dx41, minx_fx - x4, dy41, miny_fx - y4);
+
+#if PINEDA_INTERP_UVS
+	float bary_scale = 1.0f / (c1 + c2 + c3);
+#endif
 
 	// Rasterize
 	for (int y = miny; y < maxy; ++y)
 	{
 		uint8_t* output = g_screen_buffer + y * SCREEN_X;
-		int cx1 = c1, cx2 = c2, cx3 = c3; // , cx4 = c4;
+		int cx1 = c1, cx2 = c2, cx3 = c3;
 		for (int x = minx; x < maxx; x++)
 		{
 			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
 			{
+#if PINEDA_INTERP_UVS
+				float bar_1 = cx1 * bary_scale;
+				float bar_2 = cx2 * bary_scale;
+				float bar_3 = cx3 * bary_scale;
+				float u = uvs[4] * bar_1 + uvs[0] * bar_2 + uvs[2] * bar_3;
+				float v = uvs[5] * bar_1 + uvs[1] * bar_2 + uvs[3] * bar_3;
+				u = fract(u * 5.0f);
+				v = fract(v * 5.0f);
+				bool check = (u > 0.5f) != (v > 0.5f);
+				output[x] = check ? col : col / 2;
+#else
 				output[x] = col;
+#endif
 			}
 			cx1 += dy12;
 			cx2 += dy23;
 			cx3 += dy31;
-			//cx3 += dy34;
-			//cx4 += dy41;
 		}
 		c1 += dx12;
 		c2 += dx23;
 		c3 += dx31;
-		//c3 += dx34;
-		//c4 += dx41;
 	}
 }
 
@@ -555,7 +562,7 @@ static Pattern patterns[] =
 	{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }
 };
 
-static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, enum DrawStyle style, bool wire)
+static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire)
 {
 	// If any vertex is behind the camera, skip it
 	if (p1->z <= 0 || p2->z <= 0 || p3->z <= 0)
@@ -647,7 +654,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle_pineda(p1, p2, p3, col);
+		draw_triangle_pineda(p1, p2, p3, mesh->uvs + tri_index * 6, col);
 
 		if (wire)
 		{
@@ -732,6 +739,6 @@ void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* me
 		uint16_t idx0 = mesh->tris[fi * 3 + 0];
 		uint16_t idx1 = mesh->tris[fi * 3 + 1];
 		uint16_t idx2 = mesh->tris[fi * 3 + 2];
-		drawShapeFace(scene, buffer, rowstride, &scene->tmp_points[idx0], &scene->tmp_points[idx1], &scene->tmp_points[idx2], &scene->tmp_face_normals[fi], style, wire);
+		drawShapeFace(scene, buffer, rowstride, &scene->tmp_points[idx0], &scene->tmp_points[idx1], &scene->tmp_points[idx2], &scene->tmp_face_normals[fi], mesh, fi, style, wire);
 	}
 }
