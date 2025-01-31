@@ -54,6 +54,8 @@ enum DrawStyle {
 	// 15fps (17fps no wire) checker, with perspective correction
 	// 18fps (20fps no wire) checker, with perspective, no blue noise just b/w
 	Draw_Checker,
+	// 2fps initial attempt, not really working properly
+	Draw_Dither3D,
 	Draw_Count
 };
 

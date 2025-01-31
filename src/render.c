@@ -455,6 +455,160 @@ void draw_triangle_pineda(uint8_t* bitmap, int rowstride, const float3* p1, cons
 	}
 }
 
+void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+{
+	// convert coordinates to fixed point
+	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
+	int x2 = to_fixed(p2->x), y2 = to_fixed(p2->y);
+	int x3 = to_fixed(p3->x), y3 = to_fixed(p3->y);
+	// check triangle winding order
+	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
+	if (det == 0)
+		return; // zero area
+	if (det > 0)
+		return; // wrong winding
+
+	// bounding box / clipping
+	int minx = max2(fixed_ceil(min3(x1, x2, x3)), 0);
+	int miny = max2(fixed_ceil(min3(y1, y2, y3)), 0);
+	int maxx = min2(fixed_ceil(max3(x1, x2, x3)), SCREEN_X);
+	int maxy = min2(fixed_ceil(max3(y1, y2, y3)), SCREEN_Y);
+	if (minx >= maxx || miny >= maxy)
+		return;
+
+	// Edge vectors
+	int dx12 = x1 - x2, dy12 = y2 - y1;
+	int dx23 = x2 - x3, dy23 = y3 - y2;
+	int dx31 = x3 - x1, dy31 = y1 - y3;
+
+	// Edge functions
+	int minx_fx = minx << SUBPIXEL_SHIFT;
+	int miny_fx = miny << SUBPIXEL_SHIFT;
+	int c1 = det2x2_fill_rule(dx12, minx_fx - x1, dy12, miny_fx - y1);
+	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
+	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
+
+	float uv1x = uvs[0], uv1y = uvs[1];
+	float uv2x = uvs[2], uv2y = uvs[3];
+	float uv3x = uvs[4], uv3y = uvs[5];
+	// Divide UVs by Z for perspective correction
+	// https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/perspective-correct-interpolation-vertex-attributes.html
+	float invz1 = 1.0f / p1->z, invz2 = 1.0f / p2->z, invz3 = 1.0f / p3->z;
+	uv1x *= invz1, uv1y *= invz1;
+	uv2x *= invz2, uv2y *= invz2;
+	uv3x *= invz3, uv3y *= invz3;
+
+	// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
+	// Note: no RADIAL_COMPENSATION
+	const float xRes = 64.0f;
+	const float dotsPerSide = xRes / 16.0f;
+	const float dotsTotal = dotsPerSide * dotsPerSide; // Could also have been named zRes
+
+	// Lookup brightness to make dither output have correct output
+	// brightness at different input brightness values.
+	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
+	// Note: _SizeVariability fixed to default 0.0, following math simplified
+	const float brightnessSpacingMultiplier = 255.0f / brightnessCurve;
+
+
+	// Rasterize
+	for (int y = miny; y < maxy; ++y)
+	{
+		uint8_t* output = bitmap + y * rowstride;
+		int cx1 = c1, cx2 = c2, cx3 = c3;
+		for (int x = minx; x < maxx; x++)
+		{
+			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
+			{
+				float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
+				float bar_1 = cx1 * bary_scale;
+				float bar_2 = cx2 * bary_scale;
+				float bar_3 = cx3 * bary_scale;
+				float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
+				float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
+
+				// UV derivatives
+				float dxu = (uv3x * dy12 + uv1x * dy23 + uv2x * dy31) * bary_scale;
+				float dxv = (uv3y * dy12 + uv1y * dy23 + uv2y * dy31) * bary_scale;
+				float dyu = (uv3x * dx12 + uv1x * dx23 + uv2x * dx31) * bary_scale;
+				float dyv = (uv3y * dx12 + uv1y * dx23 + uv2y * dx31) * bary_scale;
+				// Get frequency based on singular value decomposition.
+				float Q = dxu * dxu + dxv * dxv + dyu * dyu + dyv * dyv;
+				float R = dxu * dyv - dxv * dyv; // determinant: ad-bc
+				float discriminantSqr = max2f(0.0f, Q * Q - 4 * R * R);
+				float discriminant = sqrtf(discriminantSqr);
+				
+				// "freq" here means rate of change of the UV coordinates on the screen.
+				// The freq variable: (max-freq, min-freq)
+				float freq_x = sqrtf((Q + discriminant) * 0.5f);
+				float freq_y = sqrtf((Q - discriminant) * 0.5f);
+
+				// We define a spacing variable which linearly correlates with
+				// the average distance between dots.
+				float spacing = freq_y;
+				// Scale the spacing by the specified input (power of two) scale.
+				const float _Scale = 5.0f;
+				float scaleExp = exp2f(_Scale);
+				spacing *= scaleExp;
+				// We keep the spacing the same regardless of whether we're using
+				// a pattern with more or less dots in it.
+				spacing *= dotsPerSide * 0.125f;
+				spacing *= brightnessSpacingMultiplier;
+
+				// Find the power-of-two level that corresponds to the dot spacing.
+				float spacingLog = log2f(spacing);
+				int patternScaleLevel = (int)floorf(spacingLog); // Fractal level.
+				float f = spacingLog - patternScaleLevel; // Fractional part.
+
+				// Get the UV coordinates in the current fractal level.
+				float uu = u / exp2f((float)patternScaleLevel);
+				float vv = v / exp2f((float)patternScaleLevel);
+				// Get the third coordinate for the 3D texture lookup.
+				float subLayer = lerp(0.25f * dotsTotal, dotsTotal - 1.0f, 1 - f);
+
+				// Sample the 3D texture.
+				int u3d = (int)(uu * xRes) & ((int)xRes - 1);
+				int v3d = (int)(vv * xRes) & ((int)xRes - 1);
+				int subLayer_i = (int)roundf(subLayer);
+				int texel_idx = (subLayer_i * (int)xRes + v3d) * (int)xRes + u3d;
+				uint8_t pattern = s_dither4x4_r[texel_idx];
+
+				// We create sharp dots from them by increasing the contrast.
+				const float _Contrast = 1.0f;
+				float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+				// The spacing is derived from the lowest frequency, but the
+				// contrast must be based on the highest frequency to avoid aliasing.
+				contrast *= freq_y / freq_x;
+
+				// The base brightness value that we scale the contrast around
+				// should normally be 0.5, but if the pattern is very blurred,
+				// that would just make the brightness everywhere close to 0.5.
+				float baseVal = lerp(0.5f, brightness/255.0f, saturate(1.05f / (1.0f + contrast)));
+
+				// The brighter output we want, the lower threshold we need to use
+				float threshold = 1.0f - brightnessCurve / 255.0f;
+				// Get the pattern value relative to the threshold, scale it
+				// according to the contrast, and add the base value.
+				float bw = saturate((pattern/255.0f - threshold) * contrast + baseVal);
+
+				bool check = bw < 0.5f;
+				int byte_idx = x / 8;
+				int mask = 1 << (7 - (x & 7));
+				if (check)
+					output[byte_idx] &= ~mask;
+				else
+					output[byte_idx] |= mask;
+			}
+			cx1 += dy12;
+			cx2 += dy23;
+			cx3 += dy31;
+		}
+		c1 += dx12;
+		c2 += dx23;
+		c3 += dx31;
+	}
+}
+
 void scene_init(Scene* scene)
 {
 	scene_setCamera(scene, (float3) { 0, 0, 0 }, (float3) { 0, 0, 1 }, 1.0, (float3) { 0, 1, 0 });
@@ -662,12 +816,29 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 	}
 	else if (style == Draw_Checker)
 	{
-		// draw into byte buffer for blue noise thresholding
+		// draw strictly black/white checker based on UV coordinates
 		int col = (int)(v * 255.0f);
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
 		draw_triangle_pineda(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col);
+
+		if (wire)
+		{
+			const uint8_t* pattern = (const uint8_t*)&patterns[0];
+			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
+		}
+	}
+	else if (style == Draw_Dither3D)
+	{
+		// draw strictly black/white checker based on UV coordinates
+		int col = (int)(v * 255.0f);
+		if (col < 0) col = 0;
+		if (col > 255) col = 255;
+
+		draw_triangle_dither3d(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col / 2);
 
 		if (wire)
 		{

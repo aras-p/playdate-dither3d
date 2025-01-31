@@ -37,7 +37,7 @@ static Scene s_scene;
 
 static bool s_draw_test = true;
 static bool s_draw_wire = true;
-static enum DrawStyle s_draw_style = Draw_Checker;
+static enum DrawStyle s_draw_style = Draw_Dither3D;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
 
