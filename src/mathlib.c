@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Unlicense
 
-#pragma once
-
 #include "mathlib.h"
 
 float3 v3_tri_normal(const float3* p1, const float3* p2, const float3* p3)

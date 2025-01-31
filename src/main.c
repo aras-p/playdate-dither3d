@@ -43,6 +43,8 @@ void app_update()
 	G.framebuffer = plat_gfx_get_frame();
 	G.framebuffer_stride = SCREEN_STRIDE_BYTES;
 
+	track_current_time();
+
 	// update the effect
 	fx_meshes_update();
 
