@@ -35,9 +35,10 @@ static Mesh g_mesh_TestPlane = { 4, g_mesh_TestPlane_vb, 2, g_mesh_TestPlane_ib,
 
 static Scene s_scene;
 
-static bool s_draw_test = true;
-static bool s_draw_wire = true;
+static bool s_draw_test = false;
+static bool s_draw_wire = false;
 static enum DrawStyle s_draw_style = Draw_Dither3D;
+static float s_cam_dist = 8.0f;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
 
@@ -59,25 +60,23 @@ static int CompareZ(const void* a, const void* b)
 
 void fx_meshes_update()
 {
-	if (G.buttons_cur & kPlatButtonLeft)
+	if (G.buttons_cur & kPlatButtonUp)
 	{
-		//planeCount -= 1;
-		//if (planeCount < 1)
-		//	planeCount = 1;
+		s_cam_dist *= 0.9f;
+		s_cam_dist = max2f(3.0f, s_cam_dist);
 	}
-	if (G.buttons_cur & kPlatButtonRight)
+	if (G.buttons_cur & kPlatButtonDown)
 	{
-		//planeCount += 1;
-		//if (planeCount > MAX_PLANES)
-		//	planeCount = MAX_PLANES;
+		s_cam_dist *= 1.1f;
+		s_cam_dist = min2f(20.0f, s_cam_dist);
 	}
-	if (G.buttons_pressed & kPlatButtonUp)
+	if (G.buttons_pressed & kPlatButtonLeft)
 	{
 		s_draw_style--;
 		if (s_draw_style < 0 || s_draw_style >= Draw_Count)
 			s_draw_style = Draw_Count - 1;
 	}
-	if (G.buttons_pressed & kPlatButtonDown)
+	if (G.buttons_pressed & kPlatButtonRight)
 	{
 		s_draw_style++;
 		if (s_draw_style < 0 || s_draw_style >= Draw_Count)
@@ -91,7 +90,9 @@ void fx_meshes_update()
 	float cangle = G.crank_angle_rad;
 	float cs = cosf(cangle);
 	float ss = sinf(cangle);
-	scene_setCamera(&s_scene, (float3) { cs * 8.0f, 3.0f, ss * 8.0f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
+	scene_setCamera(&s_scene, (float3) {
+		cs * s_cam_dist, 3.0f, ss * s_cam_dist
+	}, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
 
 	// sort the objects
 	for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
@@ -138,5 +139,5 @@ void fx_meshes_update()
 void fx_meshes_init()
 {
 	scene_init(&s_scene);
-	scene_setLight(&s_scene, (float3) { 0.3f, 1.0f, 0.3f });
+	scene_setLight(&s_scene, (float3) { -1.0f, -1.0f, 0.9f });
 }
