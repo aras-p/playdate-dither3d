@@ -38,6 +38,10 @@ uint8_t* plat_gfx_get_frame()
 {
 	return s_pd->graphics->getFrame();
 }
+uint8_t* plat_gfx_get_debug_frame()
+{
+	return NULL;
+}
 void plat_gfx_mark_updated_rows(int start, int end)
 {
 	s_pd->graphics->markUpdatedRows(start, end);
@@ -184,6 +188,7 @@ typedef struct PlatBitmap {
 } PlatBitmap;
 
 static uint8_t s_screen_buffer[SCREEN_Y * SCREEN_STRIDE_BYTES];
+static uint8_t s_screen_debug_buffer[SCREEN_X * SCREEN_Y * 4];
 
 void* plat_malloc(size_t size)
 {
@@ -202,11 +207,17 @@ void plat_free(void* ptr)
 void plat_gfx_clear(SolidColor color)
 {
 	memset(s_screen_buffer, color == kSolidColorBlack ? 0x0 : 0xFF, sizeof(s_screen_buffer));
+	memset(s_screen_debug_buffer, 0x0, sizeof(s_screen_debug_buffer));
 }
 uint8_t* plat_gfx_get_frame()
 {
 	return s_screen_buffer;
 }
+uint8_t* plat_gfx_get_debug_frame()
+{
+	return s_screen_debug_buffer;
+}
+
 void plat_gfx_mark_updated_rows(int start, int end)
 {
 }
@@ -469,10 +480,11 @@ static const char* kSokolFragSource =
 "#include <metal_stdlib>\n"
 "using namespace metal;\n"
 "struct v2f { float2 uv; };\n"
-"fragment float4 fs_main(v2f i [[stage_in]], texture2d<float> tex [[texture(0)]])\n"
+"fragment float4 fs_main(v2f i [[stage_in]], texture2d<float> tex [[texture(0)]], texture2d<float> dbgtex [[texture(1)]])\n"
 #else
 "struct v2f { float2 uv : TEXCOORD0; };\n"
 "Texture2D<float4> tex : register(t0);\n"
+"Texture2D<float4> dbgtex : register(t1);\n"
 "float4 fs_main(v2f i) : SV_Target0\n"
 #endif
 "{\n"
@@ -480,12 +492,16 @@ static const char* kSokolFragSource =
 "  int y = int(i.uv.y * 240);\n"
 #ifdef SOKOL_METAL
 "  float pix = tex.read(uint2(x>>3, y), 0).x;\n"
+"  float4 dbgpix = dbgtex.read(uint2(x, y), 0);\n"
 #else
 "  float pix = tex.Load(int3(x>>3, y, 0)).x;\n"
+"  float4 dbgpix = dbgtex.Load(int3(x, y, 0));\n"
+"  dbgpix.rgb = pow(dbgpix.rgb, 1.0/2.2);\n"
 #endif
 "  uint val = uint(pix * 255.5);\n"
 "  uint mask = 1 << (7 - (x & 7));\n"
 "  float4 col = val & mask ? float4(0.694, 0.686, 0.659, 1.0) : float4(0.192, 0.184, 0.157, 1.0);\n"
+"  col.rgb = lerp(col.rgb, dbgpix.rgb, dbgpix.a);\n\n"
 "  if (any(i.uv != saturate(i.uv))) col.rgb = 0.0;\n"
 "  return col;\n"
 "}\n";
@@ -498,15 +514,18 @@ static const char* kSokolFragSource =
 "precision highp int;\n"
 #endif
 "uniform sampler2D tex;\n"
+"uniform sampler2D dbgtex;\n"
 "in vec2 uv;\n"
 "out vec4 frag_color;\n"
 "void main() {\n"
 "  int x = int(uv.x * 400.0);\n"
 "  int y = int(uv.y * 240.0);\n"
 "  float pix = texelFetch(tex, ivec2(x>>3, y), 0).x;\n"
+"  vec4 dbgpix = texelFetch(dbgtex, ivec2(x, y), 0);\n"
 "  uint val = uint(pix * 255.5);\n"
 "  uint mask = uint(1 << (7 - (int(x) & 7)));\n"
 "  frag_color = ((val & mask) != 0u) ? vec4(0.694, 0.686, 0.659, 1.0) : vec4(0.192, 0.184, 0.157, 1.0);\n"
+"  frag_color.rgb = mix(frag_color.rgb, dbgpix.rgb, dbgpix.a);\n"
 "  if (any(notEqual(uv, clamp(uv, 0.0, 1.0)))) frag_color.rgb = vec3(0.0);\n"
 "}\n";
 #endif
@@ -515,6 +534,7 @@ static sg_pass_action sok_pass;
 static sg_shader sok_shader;
 static sg_pipeline sok_pipe;
 static sg_image sok_image;
+static sg_image sok_debug_image;
 static sg_sampler sok_sampler;
 
 typedef struct frame_uniforms {
@@ -544,6 +564,12 @@ static void sapp_init(void)
 		.pixel_format = SG_PIXELFORMAT_R8, //@TODO
 		.usage = SG_USAGE_STREAM,
 	});
+	sok_debug_image = sg_make_image(&(sg_image_desc) {
+		.width = SCREEN_X,
+		.height = SCREEN_Y,
+		.pixel_format = SG_PIXELFORMAT_RGBA8,
+		.usage = SG_USAGE_STREAM,
+	});
 	sok_shader = sg_make_shader(&(sg_shader_desc) {
 		.vs.source = kSokolVertexSource,
 		.vs.uniform_blocks[0].size = sizeof(frame_uniforms),
@@ -553,8 +579,10 @@ static void sapp_init(void)
 		.vs.entry = "vs_main",
 		.fs = {
 			.images[0].used = true,
+			.images[1].used = true,
 			.samplers[0].used = true,
 			.image_sampler_pairs[0] = { .used = true, .glsl_name = "tex", .image_slot = 0, .sampler_slot = 0 },
+			.image_sampler_pairs[1] = { .used = true, .glsl_name = "dbgtex", .image_slot = 1, .sampler_slot = 0 },
 			.source = kSokolFragSource,
 			.entry = "fs_main",
 		},
@@ -588,12 +616,14 @@ static void sapp_frame(void)
 	#endif
 
 	sg_update_image(sok_image, &(sg_image_data){.subimage[0][0] = SG_RANGE(s_screen_buffer)});
+	sg_update_image(sok_debug_image, &(sg_image_data){.subimage[0][0] = SG_RANGE(s_screen_debug_buffer)});
 
 	sg_begin_pass(&(sg_pass) { .action = sok_pass, .swapchain = sglue_swapchain() });
 
 	sg_bindings bind = {
 		.fs = {
 			.images[0] = sok_image,
+			.images[1] = sok_debug_image,
 			.samplers[0] = sok_sampler,
 		},
 	};
