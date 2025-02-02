@@ -535,7 +535,13 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 	// We create sharp dots from them by increasing the contrast.
 	const float _Contrast = 1.0f;
-	const float baseContrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+	const float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+
+	// The base brightness value that we scale the contrast around
+	// should normally be 0.5, but if the pattern is very blurred,
+	// that would just make the brightness everywhere close to 0.5.
+	float baseVal = lerp(128.0f, brightness, saturate(1.05f / (1.0f + contrast))) - 128.0f;
+
 	// The brighter output we want, the lower threshold we need to use
 	const float threshold = 255.0f - brightnessCurve;
 
@@ -593,20 +599,11 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const float dxu = u_10 - u_00;
 			const float dxv = v_10 - v_00;
 
-			// Get frequency based on singular value decomposition.
-			const float Q = dxu * dxu + dxv * dxv + dyu * dyu + dyv * dyv;
-			const float R = dxu * dyv - dxv * dyu; // determinant: ad-bc
-			const float discriminantSqr = max2f(0.0f, Q * Q - 4 * R * R);
-			const float discriminant = sqrtf(discriminantSqr);
-				
-			// "freq" here means rate of change of the UV coordinates on the screen.
-			// The freq variable: (max-freq, min-freq)
-			const float freq_x = sqrtf((Q + discriminant) * 0.5f);
-			const float freq_y = sqrtf((Q - discriminant) * 0.5f);
-
 			// We define a spacing variable which linearly correlates with
 			// the average distance between dots.
-			float spacing = freq_y;
+			// Note: simpler than upstream which calculates two frequency values
+			// based on singular value decomposition of derivatives.
+			float spacing = (fabsf(dxu) + fabsf(dxv) + fabsf(dyu) + fabsf(dyv)) * 0.25f;
 			spacing *= spacingMul;
 
 			// Find the power-of-two level that corresponds to the dot spacing.
@@ -639,15 +636,6 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				subLayer_i = DITHER_SLICES - 1;
 			const int subLayer_offset = subLayer_i * DITHER_RES;
 
-			// The spacing is derived from the lowest frequency, but the
-			// contrast must be based on the highest frequency to avoid aliasing.
-			float contrast = baseContrast * freq_y / freq_x;
-
-			// The base brightness value that we scale the contrast around
-			// should normally be 0.5, but if the pattern is very blurred,
-			// that would just make the brightness everywhere close to 0.5.
-			float baseVal = lerp(128.0f, brightness, saturate(1.05f / (1.0f + contrast)));
-
 			const int byte_idx_0 = (x + 0) / 8;
 			const int byte_idx_1 = (x + 1) / 8;
 			const int mask_0 = 1 << (7 - ((x + 0) & 7));
@@ -674,7 +662,7 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			/* according to the contrast, and add the base value. */ \
 			/* Note: the terms are slightly reassociated compared to upstream, since */ \
 			/* we only need to threshold the result. */ \
-			const float check = (pattern - threshold) * contrast + baseVal - 128.0f
+			const float check = (pattern - threshold) * contrast + baseVal
 
 			if (inside_00)
 			{
