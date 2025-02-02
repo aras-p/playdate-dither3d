@@ -500,16 +500,16 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 	// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
 	// Note: no RADIAL_COMPENSATION
-	const float xRes = 64.0f;
-	const float dotsPerSide = xRes / 16.0f;
-	const float dotsTotal = dotsPerSide * dotsPerSide; // Could also have been named zRes
+#define DITHER_RES (64)
+#define DITHER_RES_MASK (DITHER_RES-1)
+#define DITHER_DOTS_PER_SIDE (DITHER_RES/16)
+#define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
 
 	// Lookup brightness to make dither output have correct output
 	// brightness at different input brightness values.
 	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
 	// Note: _SizeVariability fixed to default 0.0, following math simplified
-	const float brightnessSpacingMultiplier = 255.0f / brightnessCurve;
-
+	const float brightnessSpacingMultiplier = 1.0f / (brightnessCurve / 255.0f * 2.0f);
 
 	// Rasterize
 	for (int y = miny; y < maxy; ++y)
@@ -520,21 +520,51 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 		{
 			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
 			{
-				float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
-				float bar_1 = cx1 * bary_scale;
-				float bar_2 = cx2 * bary_scale;
-				float bar_3 = cx3 * bary_scale;
-				float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
-				float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
+				const float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
+				const float bar_1 = cx1 * bary_scale;
+				const float bar_2 = cx2 * bary_scale;
+				const float bar_3 = cx3 * bary_scale;
+				const float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
+				const float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
 
 				// UV derivatives
+				// not quite correct:
 				float dxu = (uv3x * dy12 + uv1x * dy23 + uv2x * dy31) * bary_scale;
 				float dxv = (uv3y * dy12 + uv1y * dy23 + uv2y * dy31) * bary_scale;
 				float dyu = (uv3x * dx12 + uv1x * dx23 + uv2x * dx31) * bary_scale;
 				float dyv = (uv3y * dx12 + uv1y * dx23 + uv2y * dx31) * bary_scale;
+
+				// correct, todo optimize
+				{
+					int cx1x = cx1 + dy12;
+					int cx2x = cx2 + dy23;
+					int cx3x = cx3 + dy31;
+					const float bary_scalex = 1.0f / (cx1x * invz3 + cx2x * invz1 + cx3x * invz2);
+					const float bar_1x = cx1x * bary_scalex;
+					const float bar_2x = cx2x * bary_scalex;
+					const float bar_3x = cx3x * bary_scalex;
+					const float ux = uv3x * bar_1x + uv1x * bar_2x + uv2x * bar_3x;
+					const float vx = uv3y * bar_1x + uv1y * bar_2x + uv2y * bar_3x;
+					dxu = ux - u;
+					dxv = vx - v;
+				}
+				{
+					int cx1y = cx1 - dx12;
+					int cx2y = cx2 - dx23;
+					int cx3y = cx3 - dx31;
+					const float bary_scaley = 1.0f / (cx1y * invz3 + cx2y * invz1 + cx3y * invz2);
+					const float bar_1y = cx1y * bary_scaley;
+					const float bar_2y = cx2y * bary_scaley;
+					const float bar_3y = cx3y * bary_scaley;
+					const float uy = uv3x * bar_1y + uv1x * bar_2y + uv2x * bar_3y;
+					const float vy = uv3y * bar_1y + uv1y * bar_2y + uv2y * bar_3y;
+					dyu = uy - u;
+					dyv = vy - v;
+				}
+
 				// Get frequency based on singular value decomposition.
 				float Q = dxu * dxu + dxv * dxv + dyu * dyu + dyv * dyv;
-				float R = dxu * dyv - dxv * dyv; // determinant: ad-bc
+				float R = dxu * dyv - dxv * dyu; // determinant: ad-bc
 				float discriminantSqr = max2f(0.0f, Q * Q - 4 * R * R);
 				float discriminant = sqrtf(discriminantSqr);
 				
@@ -547,12 +577,12 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				// the average distance between dots.
 				float spacing = freq_y;
 				// Scale the spacing by the specified input (power of two) scale.
-				const float _Scale = 5.0f;
+				const float _Scale = 6.0f;
 				float scaleExp = exp2f(_Scale);
 				spacing *= scaleExp;
 				// We keep the spacing the same regardless of whether we're using
 				// a pattern with more or less dots in it.
-				spacing *= dotsPerSide * 0.125f;
+				spacing *= DITHER_DOTS_PER_SIDE * 0.125f;
 				spacing *= brightnessSpacingMultiplier;
 
 				// Find the power-of-two level that corresponds to the dot spacing.
@@ -564,13 +594,17 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				float uu = u / exp2f((float)patternScaleLevel);
 				float vv = v / exp2f((float)patternScaleLevel);
 				// Get the third coordinate for the 3D texture lookup.
-				float subLayer = lerp(0.25f * dotsTotal, dotsTotal - 1.0f, 1 - f);
+				float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
+				subLayer = subLayer - 0.5f;
 
 				// Sample the 3D texture.
-				int u3d = (int)(uu * xRes) & ((int)xRes - 1);
-				int v3d = (int)(vv * xRes) & ((int)xRes - 1);
-				int subLayer_i = (int)roundf(subLayer);
-				int texel_idx = (subLayer_i * (int)xRes + v3d) * (int)xRes + u3d;
+				int u3d = (unsigned)((int)(uu * DITHER_RES)) & DITHER_RES_MASK;
+				int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK;
+				int subLayer_i = DITHER_SLICES - 1 - (int)subLayer;
+				if (subLayer_i < 0) subLayer_i = 0;
+				if (subLayer_i >= DITHER_SLICES)
+					subLayer_i = DITHER_SLICES - 1;
+				int texel_idx = (subLayer_i * DITHER_RES + v3d) * DITHER_RES + u3d;
 				uint8_t pattern = s_dither4x4_r[texel_idx];
 
 				// We create sharp dots from them by increasing the contrast.
@@ -591,7 +625,53 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				// according to the contrast, and add the base value.
 				float bw = saturate((pattern/255.0f - threshold) * contrast + baseVal);
 
+#if 0
+				uint8_t* debug_output = plat_gfx_get_debug_frame();
+				if (debug_output) {
+					float3 dbg = (float3){ 0,0,0 };
+					// UV
+					//debug_output[(y * SCREEN_X + x) * 4 + 0] = (uint8_t)(fract(u) * 255.0f);
+					//debug_output[(y * SCREEN_X + x) * 4 + 1] = (uint8_t)(fract(v) * 255.0f);
+
+					// derivatives
+					//dbg.x = fract(fabsf(dxu) * 100);
+					//dbg.y = fract(fabsf(dxv) * 100);
+
+					//dbg.x = dbg.y = dbg.z = fabsf(Q) * 1000.0f;
+
+					// freq
+					//dbg.x = fabsf(freq_x) * 16;
+					//dbg.y = fabsf(freq_y) * 16;
+
+					// spacing
+					//dbg.x = dbg.y = dbg.z = freq_y * scaleExp;
+					//dbg.x = dbg.y = dbg.z = spacing;
+
+					// fractal UV
+					//dbg.x = fract(uu);
+					//dbg.y = fract(vv);
+
+					// pattern
+					//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+
+					//dbg.x = dbg.y = dbg.z = fract(contrast);
+					//dbg.x = dbg.y = dbg.z = fabsf(contrast*0.2f);
+
+					// bw
+					//dbg.x = dbg.y = dbg.z = bw;
+
+					// brightness
+					//dbg.x = dbg.y = dbg.z = brightness / 255.0f;
+
+					debug_output[(y * SCREEN_X + x) * 4 + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
+					debug_output[(y * SCREEN_X + x) * 4 + 1] = (uint8_t)(saturate(dbg.y) * 255.0f);
+					debug_output[(y * SCREEN_X + x) * 4 + 2] = (uint8_t)(saturate(dbg.z) * 255.0f);
+					debug_output[(y * SCREEN_X + x) * 4 + 3] = 255;
+				}
+#endif
+
 				bool check = bw < 0.5f;
+
 				int byte_idx = x / 8;
 				int mask = 1 << (7 - (x & 7));
 				if (check)
@@ -633,7 +713,7 @@ void scene_shutdown(Scene* scene)
 
 void scene_setLight(Scene* scene, float3 light)
 {
-	scene->light = light;
+	scene->light = v3_normalize(light);
 }
 
 void scene_setCenter(Scene* scene, float x, float y)
@@ -763,7 +843,8 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 	//	return;
 
 	// lighting
-	float v = 0.5f - v3_dot(*normal, scene->light) * 0.5f;
+	float v = v3_dot(*normal, scene->light) * 0.5f + 0.5f;
+	//v = normal->z * 0.5f + 0.5f;
 
 	// cheap gamma adjust
 	//v = v * v;
@@ -838,7 +919,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle_dither3d(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col / 2);
+		draw_triangle_dither3d(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
 
 		if (wire)
 		{
