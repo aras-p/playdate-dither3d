@@ -648,47 +648,6 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			// that would just make the brightness everywhere close to 0.5.
 			float baseVal = lerp(128.0f, brightness, saturate(1.05f / (1.0f + contrast)));
 
-			// Get the UV coordinates in the current fractal level.
-			//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
-			//float uu = u * scaleLevelMul;
-			//float vv = v * scaleLevelMul;
-			// instead of above, we can directly alter float exponent bits:
-			const float uu_00 = adjust_float_exp(u_00, patternScaleLevel_i);
-			const float uu_01 = adjust_float_exp(u_01, patternScaleLevel_i);
-			const float uu_10 = adjust_float_exp(u_10, patternScaleLevel_i);
-			const float uu_11 = adjust_float_exp(u_11, patternScaleLevel_i);
-			const float vv_00 = adjust_float_exp(v_00, patternScaleLevel_i);
-			const float vv_01 = adjust_float_exp(v_01, patternScaleLevel_i);
-			const float vv_10 = adjust_float_exp(v_10, patternScaleLevel_i);
-			const float vv_11 = adjust_float_exp(v_11, patternScaleLevel_i);
-
-			// Sample the 3D texture.
-			const int u3d_00 = (unsigned)((int)(uu_00 * DITHER_RES)) & DITHER_RES_MASK;
-			const int u3d_01 = (unsigned)((int)(uu_01 * DITHER_RES)) & DITHER_RES_MASK;
-			const int u3d_10 = (unsigned)((int)(uu_10 * DITHER_RES)) & DITHER_RES_MASK;
-			const int u3d_11 = (unsigned)((int)(uu_11 * DITHER_RES)) & DITHER_RES_MASK;
-			const int v3d_00 = (unsigned)((int)(vv_00 * DITHER_RES)) & DITHER_RES_MASK;
-			const int v3d_01 = (unsigned)((int)(vv_01 * DITHER_RES)) & DITHER_RES_MASK;
-			const int v3d_10 = (unsigned)((int)(vv_10 * DITHER_RES)) & DITHER_RES_MASK;
-			const int v3d_11 = (unsigned)((int)(vv_11 * DITHER_RES)) & DITHER_RES_MASK;
-			const int texel_idx_00 = (subLayer_offset + v3d_00) * DITHER_RES + u3d_00;
-			const int texel_idx_01 = (subLayer_offset + v3d_01) * DITHER_RES + u3d_01;
-			const int texel_idx_10 = (subLayer_offset + v3d_10) * DITHER_RES + u3d_10;
-			const int texel_idx_11 = (subLayer_offset + v3d_11) * DITHER_RES + u3d_11;
-			const uint8_t pattern_00 = s_dither4x4_r[texel_idx_00];
-			const uint8_t pattern_01 = s_dither4x4_r[texel_idx_01];
-			const uint8_t pattern_10 = s_dither4x4_r[texel_idx_10];
-			const uint8_t pattern_11 = s_dither4x4_r[texel_idx_11];
-
-			// Get the pattern value relative to the threshold, scale it
-			// according to the contrast, and add the base value.
-			// Note: the terms are slightly reassociated compared to upstream, since
-			// we only need to threshold the result.
-			const float check_00 = (pattern_00 - threshold) * contrast + baseVal - 128.0f;
-			const float check_01 = (pattern_01 - threshold) * contrast + baseVal - 128.0f;
-			const float check_10 = (pattern_10 - threshold) * contrast + baseVal - 128.0f;
-			const float check_11 = (pattern_11 - threshold) * contrast + baseVal - 128.0f;
-
 			const int byte_idx_0 = (x + 0) / 8;
 			const int byte_idx_1 = (x + 1) / 8;
 			const int mask_0 = 1 << (7 - ((x + 0) & 7));
@@ -697,30 +656,54 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const bool inside_01 = edges_01 >= 0;
 			const bool inside_10 = edges_10 >= 0;
 			const bool inside_11 = edges_11 >= 0;
+
+#define DO_PIXEL_SAMPLE3D(idx) \
+			/* Get the UV coordinates in the current fractal level. */ \
+			/* const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel); */ \
+			/* float uu = u * scaleLevelMul; */ \
+			/* float vv = v * scaleLevelMul; */ \
+			/* instead of above, we can directly alter float exponent bits: */ \
+			const float uu = adjust_float_exp(u_##idx, patternScaleLevel_i); \
+			const float vv = adjust_float_exp(v_##idx, patternScaleLevel_i); \
+			/* Sample the 3D texture. */ \
+			const int u3d = (unsigned)((int)(uu * DITHER_RES)) & DITHER_RES_MASK; \
+			const int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK; \
+			const int texel_idx = (subLayer_offset + v3d) * DITHER_RES + u3d; \
+			const uint8_t pattern = s_dither4x4_r[texel_idx]; \
+			/* Get the pattern value relative to the threshold, scale it */ \
+			/* according to the contrast, and add the base value. */ \
+			/* Note: the terms are slightly reassociated compared to upstream, since */ \
+			/* we only need to threshold the result. */ \
+			const float check = (pattern - threshold) * contrast + baseVal - 128.0f
+
 			if (inside_00)
 			{
-				if (check_00 < 0.0f)
+				DO_PIXEL_SAMPLE3D(00);
+				if (check < 0.0f)
 					output_0[byte_idx_0] &= ~mask_0;
 				else
 					output_0[byte_idx_0] |= mask_0;
 			}
 			if (inside_01)
 			{
-				if (check_01 < 0.0f)
+				DO_PIXEL_SAMPLE3D(01);
+				if (check < 0.0f)
 					output_0[byte_idx_1] &= ~mask_1;
 				else
 					output_0[byte_idx_1] |= mask_1;
 			}
 			if (inside_10)
 			{
-				if (check_10 < 0.0f)
+				DO_PIXEL_SAMPLE3D(10);
+				if (check < 0.0f)
 					output_1[byte_idx_0] &= ~mask_0;
 				else
 					output_1[byte_idx_0] |= mask_0;
 			}
 			if (inside_11)
 			{
-				if (check_11 < 0.0f)
+				DO_PIXEL_SAMPLE3D(11);
+				if (check < 0.0f)
 					output_1[byte_idx_1] &= ~mask_1;
 				else
 					output_1[byte_idx_1] |= mask_1;

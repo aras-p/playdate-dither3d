@@ -59,6 +59,7 @@ enum DrawStyle {
 	// 246ms device, 2.7ms PC bit manip for patternScaleLevel and f
 	// 149ms device, 1.4ms 2x2 raster
 	// 137ms device, 1.3ms simplification to contrast maths
+	// 123ms device, 1.4ms move final sampling inside visibility check for each 2x2 pixel
 	Draw_Dither3D,
 	Draw_Count
 };
