@@ -494,6 +494,10 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	int dx23 = x2 - x3, dy23 = y3 - y2;
 	int dx31 = x3 - x1, dy31 = y1 - y3;
 
+	// We will rasterize 2x2 pixel blocks, so make sure starting coords are even
+	minx &= ~1;
+	miny &= ~1;
+
 	// Edge functions
 	int minx_fx = minx << SUBPIXEL_SHIFT;
 	int miny_fx = miny << SUBPIXEL_SHIFT;
@@ -501,15 +505,12 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
 	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
 
-	float uv1x = uvs[0], uv1y = uvs[1];
-	float uv2x = uvs[2], uv2y = uvs[3];
-	float uv3x = uvs[4], uv3y = uvs[5];
+	const float invz1 = 1.0f / p1->z, invz2 = 1.0f / p2->z, invz3 = 1.0f / p3->z;
 	// Divide UVs by Z for perspective correction
 	// https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/perspective-correct-interpolation-vertex-attributes.html
-	float invz1 = 1.0f / p1->z, invz2 = 1.0f / p2->z, invz3 = 1.0f / p3->z;
-	uv1x *= invz1, uv1y *= invz1;
-	uv2x *= invz2, uv2y *= invz2;
-	uv3x *= invz3, uv3y *= invz3;
+	const float uv1x = uvs[0] * invz1, uv1y = uvs[1] * invz1;
+	const float uv2x = uvs[2] * invz2, uv2y = uvs[3] * invz2;
+	const float uv3x = uvs[4] * invz3, uv3y = uvs[5] * invz3;
 
 	// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
 	// Note: no RADIAL_COMPENSATION
@@ -527,200 +528,298 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	const float _Scale = 6.0f;
 	const float scaleExp = exp2f(_Scale);
 
-	// Rasterize
-	for (int y = miny; y < maxy; ++y)
+	// Scale the spacing by the specified input (power of two) scale.
+	// We keep the spacing the same regardless of whether we're using
+	// a pattern with more or less dots in it.
+	const float spacingMul = scaleExp * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
+
+	// Rasterize: two rows at a time
+	for (int y = miny; y < maxy; y += 2, c1 += dx12 + dx12, c2 += dx23 + dx23, c3 += dx31 + dx31)
 	{
-		uint8_t* output = bitmap + y * rowstride;
-		int cx1 = c1, cx2 = c2, cx3 = c3;
-		for (int x = minx; x < maxx; x++)
+		uint8_t* output_0 = bitmap + y * rowstride;
+		uint8_t* output_1 = output_0 + rowstride;
+		int cx1_00 = c1, cx2_00 = c2, cx3_00 = c3;
+
+		// Two columns at a time
+		for (int x = minx; x < maxx; x += 2, cx1_00 += dy12 + dy12, cx2_00 += dy23 + dy23, cx3_00 += dy31 + dy31)
 		{
-			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
-			{
-				const float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
-				const float bar_1 = cx1 * bary_scale;
-				const float bar_2 = cx2 * bary_scale;
-				const float bar_3 = cx3 * bary_scale;
-				const float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
-				const float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
+			int cx1_10 = cx1_00 + dx12, cx2_10 = cx2_00 + dx23, cx3_10 = cx3_00 + dx31;
+			int cx1_01 = cx1_00 + dy12, cx2_01 = cx2_00 + dy23, cx3_01 = cx3_00 + dy31;
+			int cx1_11 = cx1_10 + dy12, cx2_11 = cx2_10 + dy23, cx3_11 = cx3_10 + dy31;
+			const int edges_00 = cx1_00 | cx2_00 | cx3_00;
+			const int edges_01 = cx1_01 | cx2_01 | cx3_01;
+			const int edges_10 = cx1_10 | cx2_10 | cx3_10;
+			const int edges_11 = cx1_11 | cx2_11 | cx3_11;
+			if ((edges_00 & edges_01 & edges_10 & edges_11) < 0) // all 4 pixels are outside
+				continue;
 
-				// UV derivatives
-				// not quite correct:
-				float dxu = (uv3x * dy12 + uv1x * dy23 + uv2x * dy31) * bary_scale;
-				float dxv = (uv3y * dy12 + uv1y * dy23 + uv2y * dy31) * bary_scale;
-				float dyu = (uv3x * dx12 + uv1x * dx23 + uv2x * dx31) * bary_scale;
-				float dyv = (uv3y * dx12 + uv1y * dx23 + uv2y * dx31) * bary_scale;
+			// Barycentric coordinates for pixels
+			const float bary_scale_00 = 1.0f / (cx1_00 * invz3 + cx2_00 * invz1 + cx3_00 * invz2);
+			const float bary_scale_01 = 1.0f / (cx1_01 * invz3 + cx2_01 * invz1 + cx3_01 * invz2);
+			const float bary_scale_10 = 1.0f / (cx1_10 * invz3 + cx2_10 * invz1 + cx3_10 * invz2);
+			const float bary_scale_11 = 1.0f / (cx1_11 * invz3 + cx2_11 * invz1 + cx3_11 * invz2);
+			const float bar_1_00 = cx1_00 * bary_scale_00;
+			const float bar_1_01 = cx1_01 * bary_scale_01;
+			const float bar_1_10 = cx1_10 * bary_scale_10;
+			const float bar_1_11 = cx1_11 * bary_scale_11;
+			const float bar_2_00 = cx2_00 * bary_scale_00;
+			const float bar_2_01 = cx2_01 * bary_scale_01;
+			const float bar_2_10 = cx2_10 * bary_scale_10;
+			const float bar_2_11 = cx2_11 * bary_scale_11;
+			const float bar_3_00 = cx3_00 * bary_scale_00;
+			const float bar_3_01 = cx3_01 * bary_scale_01;
+			const float bar_3_10 = cx3_10 * bary_scale_10;
+			const float bar_3_11 = cx3_11 * bary_scale_11;
 
-				// correct, todo optimize
-				{
-					int cx1x = cx1 + dy12;
-					int cx2x = cx2 + dy23;
-					int cx3x = cx3 + dy31;
-					const float bary_scalex = 1.0f / (cx1x * invz3 + cx2x * invz1 + cx3x * invz2);
-					const float bar_1x = cx1x * bary_scalex;
-					const float bar_2x = cx2x * bary_scalex;
-					const float bar_3x = cx3x * bary_scalex;
-					const float ux = uv3x * bar_1x + uv1x * bar_2x + uv2x * bar_3x;
-					const float vx = uv3y * bar_1x + uv1y * bar_2x + uv2y * bar_3x;
-					dxu = ux - u;
-					dxv = vx - v;
-				}
-				{
-					int cx1y = cx1 - dx12;
-					int cx2y = cx2 - dx23;
-					int cx3y = cx3 - dx31;
-					const float bary_scaley = 1.0f / (cx1y * invz3 + cx2y * invz1 + cx3y * invz2);
-					const float bar_1y = cx1y * bary_scaley;
-					const float bar_2y = cx2y * bary_scaley;
-					const float bar_3y = cx3y * bary_scaley;
-					const float uy = uv3x * bar_1y + uv1x * bar_2y + uv2x * bar_3y;
-					const float vy = uv3y * bar_1y + uv1y * bar_2y + uv2y * bar_3y;
-					dyu = uy - u;
-					dyv = vy - v;
-				}
+			// UVs
+			const float u_00 = uv3x * bar_1_00 + uv1x * bar_2_00 + uv2x * bar_3_00;
+			const float u_01 = uv3x * bar_1_01 + uv1x * bar_2_01 + uv2x * bar_3_01;
+			const float u_10 = uv3x * bar_1_10 + uv1x * bar_2_10 + uv2x * bar_3_10;
+			const float u_11 = uv3x * bar_1_11 + uv1x * bar_2_11 + uv2x * bar_3_11;
+			const float v_00 = uv3y * bar_1_00 + uv1y * bar_2_00 + uv2y * bar_3_00;
+			const float v_01 = uv3y * bar_1_01 + uv1y * bar_2_01 + uv2y * bar_3_01;
+			const float v_10 = uv3y * bar_1_10 + uv1y * bar_2_10 + uv2y * bar_3_10;
+			const float v_11 = uv3y * bar_1_11 + uv1y * bar_2_11 + uv2y * bar_3_11;
 
-				// Get frequency based on singular value decomposition.
-				float Q = dxu * dxu + dxv * dxv + dyu * dyu + dyv * dyv;
-				float R = dxu * dyv - dxv * dyu; // determinant: ad-bc
-				float discriminantSqr = max2f(0.0f, Q * Q - 4 * R * R);
-				float discriminant = sqrtf(discriminantSqr);
+			// UV derivatives
+			const float dyu = u_01 - u_00;
+			const float dyv = v_01 - v_00;
+			const float dxu = u_10 - u_00;
+			const float dxv = v_10 - v_00;
+
+			// Get frequency based on singular value decomposition.
+			const float Q = dxu * dxu + dxv * dxv + dyu * dyu + dyv * dyv;
+			const float R = dxu * dyv - dxv * dyu; // determinant: ad-bc
+			const float discriminantSqr = max2f(0.0f, Q * Q - 4 * R * R);
+			const float discriminant = sqrtf(discriminantSqr);
 				
-				// "freq" here means rate of change of the UV coordinates on the screen.
-				// The freq variable: (max-freq, min-freq)
-				float freq_x = sqrtf((Q + discriminant) * 0.5f);
-				float freq_y = sqrtf((Q - discriminant) * 0.5f);
+			// "freq" here means rate of change of the UV coordinates on the screen.
+			// The freq variable: (max-freq, min-freq)
+			const float freq_x = sqrtf((Q + discriminant) * 0.5f);
+			const float freq_y = sqrtf((Q - discriminant) * 0.5f);
 
-				// We define a spacing variable which linearly correlates with
-				// the average distance between dots.
-				float spacing = freq_y;
-				// Scale the spacing by the specified input (power of two) scale.
-				spacing *= scaleExp;
-				// We keep the spacing the same regardless of whether we're using
-				// a pattern with more or less dots in it.
-				spacing *= DITHER_DOTS_PER_SIDE * 0.125f;
-				spacing *= brightnessSpacingMultiplier;
+			// We define a spacing variable which linearly correlates with
+			// the average distance between dots.
+			float spacing = freq_y;
+			spacing *= spacingMul;
 
-				// Find the power-of-two level that corresponds to the dot spacing.
-				//float spacingLog = log2f(spacing);
-				//const float patternScaleLevel = floorf(spacingLog); // Fractal level.
-				//const int patternScaleLevel_i = (int)patternScaleLevel;
-				//float f = spacingLog - patternScaleLevel; // Fractional part.
-				//
-				// instead of above, work on float bits directly:
-				union {
-					float f;
-					uint32_t u;
-				} fu;
-				fu.f = spacing;
-				// patternScaleLevel is just float exponent:
-				const int patternScaleLevel_i = (int)((fu.u >> 23) & 0xFF) - 127;
-				// fractional part is:
-				// - take the mantissa bits of spacing,
-				// - set exponent to 127, i.e. range [0,1)
-				// - use that as a float and subtract 1.0
-				fu.u = (fu.u & 0x7FFFFF) | 0x3F800000;
-				float f = fu.f - 1.0f;
+			// Find the power-of-two level that corresponds to the dot spacing.
+			//float spacingLog = log2f(spacing);
+			//const float patternScaleLevel = floorf(spacingLog); // Fractal level.
+			//const int patternScaleLevel_i = (int)patternScaleLevel;
+			//float f = spacingLog - patternScaleLevel; // Fractional part.
+			//
+			// instead of above, work on float bits directly:
+			union {
+				float f;
+				uint32_t u;
+			} fu;
+			fu.f = spacing;
+			// patternScaleLevel is just float exponent:
+			const int patternScaleLevel_i = (int)((fu.u >> 23) & 0xFF) - 127;
+			// fractional part is:
+			// - take the mantissa bits of spacing,
+			// - set exponent to 127, i.e. range [0,1)
+			// - use that as a float and subtract 1.0
+			fu.u = (fu.u & 0x7FFFFF) | 0x3F800000;
+			const float f = fu.f - 1.0f;
 
-				// Get the UV coordinates in the current fractal level.
-				//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
-				//float uu = u * scaleLevelMul;
-				//float vv = v * scaleLevelMul;
-				// instead of above, we can directly alter float exponent bits:
-				float uu = adjust_float_exp(u, patternScaleLevel_i);
-				float vv = adjust_float_exp(v, patternScaleLevel_i);
+			// Get the third coordinate for the 3D texture lookup.
+			float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
+			subLayer = subLayer - 0.5f;
+			int subLayer_i = DITHER_SLICES - 1 - (int)subLayer;
+			if (subLayer_i < 0) subLayer_i = 0;
+			if (subLayer_i >= DITHER_SLICES)
+				subLayer_i = DITHER_SLICES - 1;
+			const int subLayer_offset = subLayer_i * DITHER_RES;
 
-				// Get the third coordinate for the 3D texture lookup.
-				float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
-				subLayer = subLayer - 0.5f;
+			// We create sharp dots from them by increasing the contrast.
+			const float _Contrast = 1.0f;
+			float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+			// The spacing is derived from the lowest frequency, but the
+			// contrast must be based on the highest frequency to avoid aliasing.
+			contrast *= freq_y / freq_x;
 
-				// Sample the 3D texture.
-				int u3d = (unsigned)((int)(uu * DITHER_RES)) & DITHER_RES_MASK;
-				int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK;
-				int subLayer_i = DITHER_SLICES - 1 - (int)subLayer;
-				if (subLayer_i < 0) subLayer_i = 0;
-				if (subLayer_i >= DITHER_SLICES)
-					subLayer_i = DITHER_SLICES - 1;
-				int texel_idx = (subLayer_i * DITHER_RES + v3d) * DITHER_RES + u3d;
-				uint8_t pattern = s_dither4x4_r[texel_idx];
+			// The base brightness value that we scale the contrast around
+			// should normally be 0.5, but if the pattern is very blurred,
+			// that would just make the brightness everywhere close to 0.5.
+			float baseVal = lerp(0.5f, brightness / 255.0f, saturate(1.05f / (1.0f + contrast)));
 
-				// We create sharp dots from them by increasing the contrast.
-				const float _Contrast = 1.0f;
-				float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
-				// The spacing is derived from the lowest frequency, but the
-				// contrast must be based on the highest frequency to avoid aliasing.
-				contrast *= freq_y / freq_x;
+			// The brighter output we want, the lower threshold we need to use
+			float threshold = 1.0f - brightnessCurve / 255.0f;
 
-				// The base brightness value that we scale the contrast around
-				// should normally be 0.5, but if the pattern is very blurred,
-				// that would just make the brightness everywhere close to 0.5.
-				float baseVal = lerp(0.5f, brightness/255.0f, saturate(1.05f / (1.0f + contrast)));
+			// Get the UV coordinates in the current fractal level.
+			//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
+			//float uu = u * scaleLevelMul;
+			//float vv = v * scaleLevelMul;
+			// instead of above, we can directly alter float exponent bits:
+			const float uu_00 = adjust_float_exp(u_00, patternScaleLevel_i);
+			const float uu_01 = adjust_float_exp(u_01, patternScaleLevel_i);
+			const float uu_10 = adjust_float_exp(u_10, patternScaleLevel_i);
+			const float uu_11 = adjust_float_exp(u_11, patternScaleLevel_i);
+			const float vv_00 = adjust_float_exp(v_00, patternScaleLevel_i);
+			const float vv_01 = adjust_float_exp(v_01, patternScaleLevel_i);
+			const float vv_10 = adjust_float_exp(v_10, patternScaleLevel_i);
+			const float vv_11 = adjust_float_exp(v_11, patternScaleLevel_i);
 
-				// The brighter output we want, the lower threshold we need to use
-				float threshold = 1.0f - brightnessCurve / 255.0f;
-				// Get the pattern value relative to the threshold, scale it
-				// according to the contrast, and add the base value.
-				float bw = saturate((pattern/255.0f - threshold) * contrast + baseVal);
+			// Sample the 3D texture.
+			const int u3d_00 = (unsigned)((int)(uu_00 * DITHER_RES)) & DITHER_RES_MASK;
+			const int u3d_01 = (unsigned)((int)(uu_01 * DITHER_RES)) & DITHER_RES_MASK;
+			const int u3d_10 = (unsigned)((int)(uu_10 * DITHER_RES)) & DITHER_RES_MASK;
+			const int u3d_11 = (unsigned)((int)(uu_11 * DITHER_RES)) & DITHER_RES_MASK;
+			const int v3d_00 = (unsigned)((int)(vv_00 * DITHER_RES)) & DITHER_RES_MASK;
+			const int v3d_01 = (unsigned)((int)(vv_01 * DITHER_RES)) & DITHER_RES_MASK;
+			const int v3d_10 = (unsigned)((int)(vv_10 * DITHER_RES)) & DITHER_RES_MASK;
+			const int v3d_11 = (unsigned)((int)(vv_11 * DITHER_RES)) & DITHER_RES_MASK;
+			const int texel_idx_00 = (subLayer_offset + v3d_00) * DITHER_RES + u3d_00;
+			const int texel_idx_01 = (subLayer_offset + v3d_01) * DITHER_RES + u3d_01;
+			const int texel_idx_10 = (subLayer_offset + v3d_10) * DITHER_RES + u3d_10;
+			const int texel_idx_11 = (subLayer_offset + v3d_11) * DITHER_RES + u3d_11;
+			const uint8_t pattern_00 = s_dither4x4_r[texel_idx_00];
+			const uint8_t pattern_01 = s_dither4x4_r[texel_idx_01];
+			const uint8_t pattern_10 = s_dither4x4_r[texel_idx_10];
+			const uint8_t pattern_11 = s_dither4x4_r[texel_idx_11];
+
+			// Get the pattern value relative to the threshold, scale it
+			// according to the contrast, and add the base value.
+			const float bw_00 = saturate((pattern_00 / 255.0f - threshold) * contrast + baseVal);
+			const float bw_01 = saturate((pattern_01 / 255.0f - threshold) * contrast + baseVal);
+			const float bw_10 = saturate((pattern_10 / 255.0f - threshold) * contrast + baseVal);
+			const float bw_11 = saturate((pattern_11 / 255.0f - threshold) * contrast + baseVal);
+
+			const int byte_idx_0 = (x + 0) / 8;
+			const int byte_idx_1 = (x + 1) / 8;
+			const int mask_0 = 1 << (7 - ((x + 0) & 7));
+			const int mask_1 = 1 << (7 - ((x + 1) & 7));
+			const bool inside_00 = edges_00 >= 0;
+			const bool inside_01 = edges_01 >= 0;
+			const bool inside_10 = edges_10 >= 0;
+			const bool inside_11 = edges_11 >= 0;
+			if (inside_00)
+			{
+				const bool check = bw_00 < 0.5f;
+				if (check)
+					output_0[byte_idx_0] &= ~mask_0;
+				else
+					output_0[byte_idx_0] |= mask_0;
+			}
+			if (inside_01)
+			{
+				const bool check = bw_01 < 0.5f;
+				if (check)
+					output_0[byte_idx_1] &= ~mask_1;
+				else
+					output_0[byte_idx_1] |= mask_1;
+			}
+			if (inside_10)
+			{
+				const bool check = bw_10 < 0.5f;
+				if (check)
+					output_1[byte_idx_0] &= ~mask_0;
+				else
+					output_1[byte_idx_0] |= mask_0;
+			}
+			if (inside_11)
+			{
+				const bool check = bw_11 < 0.5f;
+				if (check)
+					output_1[byte_idx_1] &= ~mask_1;
+				else
+					output_1[byte_idx_1] |= mask_1;
+			}
 
 #if 0
-				uint8_t* debug_output = plat_gfx_get_debug_frame();
-				if (debug_output) {
-					float3 dbg = (float3){ 0,0,0 };
-					// UV
-					//debug_output[(y * SCREEN_X + x) * 4 + 0] = (uint8_t)(fract(u) * 255.0f);
-					//debug_output[(y * SCREEN_X + x) * 4 + 1] = (uint8_t)(fract(v) * 255.0f);
+			uint8_t* debug_output = plat_gfx_get_debug_frame();
+			if (debug_output) {
+				float3 dbg_00 = (float3){ 0,0,0 };
+				float3 dbg_01 = (float3){ 0,0,0 };
+				float3 dbg_10 = (float3){ 0,0,0 };
+				float3 dbg_11 = (float3){ 0,0,0 };
 
-					// derivatives
-					//dbg.x = fract(fabsf(dxu) * 100);
-					//dbg.y = fract(fabsf(dxv) * 100);
+				// UV
+				//dbg_00.x = fract(u_00), dbg_00.y = fract(v_00);
+				//dbg_01.x = fract(u_01), dbg_01.y = fract(v_01);
+				//dbg_10.x = fract(u_10), dbg_10.y = fract(v_10);
+				//dbg_11.x = fract(u_11), dbg_11.y = fract(v_11);
 
-					//dbg.x = dbg.y = dbg.z = fabsf(Q) * 1000.0f;
+				// derivatives
+				//dbg_00.x = dbg_01.x = dbg_10.x = dbg_11.x = fract(fabsf(dxu) * 100);
+				//dbg_00.y = dbg_01.y = dbg_10.y = dbg_11.y = fract(fabsf(dxv) * 100);
+				//dbg_00.x = dbg_01.x = dbg_10.x = dbg_11.x = fract(fabsf(dyu) * 100);
+				//dbg_00.y = dbg_01.y = dbg_10.y = dbg_11.y = fract(fabsf(dyv) * 100);
 
-					// freq
-					//dbg.x = fabsf(freq_x) * 16;
-					//dbg.y = fabsf(freq_y) * 16;
+				//dbg.x = dbg.y = dbg.z = fabsf(Q) * 1000.0f;
 
-					// spacing
-					//dbg.x = dbg.y = dbg.z = freq_y * scaleExp;
-					//dbg.x = dbg.y = dbg.z = spacing;
+				// freq
+				//dbg.x = fabsf(freq_x) * 16;
+				//dbg.y = fabsf(freq_y) * 16;
 
-					// fractal UV
-					//dbg.x = fract(uu);
-					//dbg.y = fract(vv);
+				// spacing
+				//dbg.x = dbg.y = dbg.z = freq_y * scaleExp;
+				//dbg.x = dbg.y = dbg.z = spacing;
 
-					// pattern
-					//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+				// fractal UV
+				//dbg_00.x = fract(uu_00), dbg_00.y = fract(vv_00);
+				//dbg_01.x = fract(uu_01), dbg_01.y = fract(vv_01);
+				//dbg_10.x = fract(uu_10), dbg_10.y = fract(vv_10);
+				//dbg_11.x = fract(uu_11), dbg_11.y = fract(vv_11);
 
-					//dbg.x = dbg.y = dbg.z = fract(contrast);
-					//dbg.x = dbg.y = dbg.z = fabsf(contrast*0.2f);
+				// pattern
+				//dbg_00.x = dbg_00.y = dbg_00.z = pattern_00 / 255.0f;
+				//dbg_01.x = dbg_01.y = dbg_01.z = pattern_01 / 255.0f;
+				//dbg_10.x = dbg_10.y = dbg_10.z = pattern_10 / 255.0f;
+				//dbg_11.x = dbg_11.y = dbg_11.z = pattern_11 / 255.0f;
 
-					// bw
-					//dbg.x = dbg.y = dbg.z = bw;
+				//dbg.x = dbg.y = dbg.z = fract(contrast);
+				//dbg.x = dbg.y = dbg.z = fabsf(contrast*0.2f);
 
-					// brightness
-					//dbg.x = dbg.y = dbg.z = brightness / 255.0f;
+				// bw
+				//dbg_00.x = dbg_00.y = dbg_00.z = bw_00;
+				//dbg_01.x = dbg_01.y = dbg_01.z = bw_01;
+				//dbg_10.x = dbg_10.y = dbg_10.z = bw_10;
+				//dbg_11.x = dbg_11.y = dbg_11.z = bw_11;
 
-					debug_output[(y * SCREEN_X + x) * 4 + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
-					debug_output[(y * SCREEN_X + x) * 4 + 1] = (uint8_t)(saturate(dbg.y) * 255.0f);
-					debug_output[(y * SCREEN_X + x) * 4 + 2] = (uint8_t)(saturate(dbg.z) * 255.0f);
-					debug_output[(y * SCREEN_X + x) * 4 + 3] = 255;
+				// check
+				dbg_00.x = dbg_00.y = dbg_00.z = bw_00 >= 0.5f;
+				dbg_01.x = dbg_01.y = dbg_01.z = bw_01 >= 0.5f;
+				dbg_10.x = dbg_10.y = dbg_10.z = bw_10 >= 0.5f;
+				dbg_11.x = dbg_11.y = dbg_11.z = bw_11 >= 0.5f;
+
+				// brightness
+				//dbg.x = dbg.y = dbg.z = brightness / 255.0f;
+
+				const int offset = (y * SCREEN_X + x) * 4 + 0;
+				if (inside_00)
+				{
+					debug_output[offset + 0] = (uint8_t)(saturate(dbg_00.x) * 255.0f);
+					debug_output[offset + 1] = (uint8_t)(saturate(dbg_00.y) * 255.0f);
+					debug_output[offset + 2] = (uint8_t)(saturate(dbg_00.z) * 255.0f);
+					debug_output[offset + 3] = 255;
 				}
-#endif
-
-				bool check = bw < 0.5f;
-
-				int byte_idx = x / 8;
-				int mask = 1 << (7 - (x & 7));
-				if (check)
-					output[byte_idx] &= ~mask;
-				else
-					output[byte_idx] |= mask;
+				if (inside_01)
+				{
+					debug_output[offset + 4] = (uint8_t)(saturate(dbg_01.x) * 255.0f);
+					debug_output[offset + 5] = (uint8_t)(saturate(dbg_01.y) * 255.0f);
+					debug_output[offset + 6] = (uint8_t)(saturate(dbg_01.z) * 255.0f);
+					debug_output[offset + 7] = 255;
+				}
+				if (inside_10)
+				{
+					debug_output[offset + 0 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_10.x) * 255.0f);
+					debug_output[offset + 1 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_10.y) * 255.0f);
+					debug_output[offset + 2 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_10.z) * 255.0f);
+					debug_output[offset + 3 + SCREEN_X * 4] = 255;
+				}
+				if (inside_11)
+				{
+					debug_output[offset + 4 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_11.x) * 255.0f);
+					debug_output[offset + 5 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_11.y) * 255.0f);
+					debug_output[offset + 6 + SCREEN_X * 4] = (uint8_t)(saturate(dbg_11.z) * 255.0f);
+					debug_output[offset + 7 + SCREEN_X * 4] = 255;
+				}
 			}
-			cx1 += dy12;
-			cx2 += dy23;
-			cx3 += dy31;
+#endif
 		}
-		c1 += dx12;
-		c2 += dx23;
-		c3 += dx31;
 	}
 }
 
