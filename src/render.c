@@ -511,6 +511,9 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	// Note: _SizeVariability fixed to default 0.0, following math simplified
 	const float brightnessSpacingMultiplier = 1.0f / (brightnessCurve / 255.0f * 2.0f);
 
+	const float _Scale = 6.0f;
+	const float scaleExp = exp2f(_Scale);
+
 	// Rasterize
 	for (int y = miny; y < maxy; ++y)
 	{
@@ -577,8 +580,6 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				// the average distance between dots.
 				float spacing = freq_y;
 				// Scale the spacing by the specified input (power of two) scale.
-				const float _Scale = 6.0f;
-				float scaleExp = exp2f(_Scale);
 				spacing *= scaleExp;
 				// We keep the spacing the same regardless of whether we're using
 				// a pattern with more or less dots in it.
@@ -587,12 +588,13 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 				// Find the power-of-two level that corresponds to the dot spacing.
 				float spacingLog = log2f(spacing);
-				int patternScaleLevel = (int)floorf(spacingLog); // Fractal level.
+				float patternScaleLevel = floorf(spacingLog); // Fractal level.
 				float f = spacingLog - patternScaleLevel; // Fractional part.
 
 				// Get the UV coordinates in the current fractal level.
-				float uu = u / exp2f((float)patternScaleLevel);
-				float vv = v / exp2f((float)patternScaleLevel);
+				const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
+				float uu = u * scaleLevelMul;
+				float vv = v * scaleLevelMul;
 				// Get the third coordinate for the 3D texture lookup.
 				float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
 				subLayer = subLayer - 0.5f;
