@@ -600,10 +600,25 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				spacing *= brightnessSpacingMultiplier;
 
 				// Find the power-of-two level that corresponds to the dot spacing.
-				float spacingLog = log2f(spacing);
-				const float patternScaleLevel = floorf(spacingLog); // Fractal level.
-				const int patternScaleLevel_i = (int)patternScaleLevel;
-				float f = spacingLog - patternScaleLevel; // Fractional part.
+				//float spacingLog = log2f(spacing);
+				//const float patternScaleLevel = floorf(spacingLog); // Fractal level.
+				//const int patternScaleLevel_i = (int)patternScaleLevel;
+				//float f = spacingLog - patternScaleLevel; // Fractional part.
+				//
+				// instead of above, work on float bits directly:
+				union {
+					float f;
+					uint32_t u;
+				} fu;
+				fu.f = spacing;
+				// patternScaleLevel is just float exponent:
+				const int patternScaleLevel_i = (int)((fu.u >> 23) & 0xFF) - 127;
+				// fractional part is:
+				// - take the mantissa bits of spacing,
+				// - set exponent to 127, i.e. range [0,1)
+				// - use that as a float and subtract 1.0
+				fu.u = (fu.u & 0x7FFFFF) | 0x3F800000;
+				float f = fu.f - 1.0f;
 
 				// Get the UV coordinates in the current fractal level.
 				//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);

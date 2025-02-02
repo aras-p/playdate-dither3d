@@ -56,6 +56,7 @@ enum DrawStyle {
 	Draw_Checker,
 	// 605ms device, 5.8ms PC
 	// 316ms device, 4.2ms PC adjust_float_exp
+	// 246ms device, 2.7ms PC bit manip for patternScaleLevel and f
 	Draw_Dither3D,
 	Draw_Count
 };
