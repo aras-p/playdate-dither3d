@@ -11,24 +11,8 @@
 
 void app_initialize()
 {
-	G.rng = 1;
-	G.frame_count = 0;
-	G.time = G.prev_time = -1.0f;
-
 	init_pixel_ops();
 	fx_meshes_init();
-}
-
-#define TIME_SCRUB_SECONDS (5.0f)
-
-static void track_current_time()
-{
-	G.frame_count++;
-	G.prev_time = G.time;
-	G.time = plat_time_get() / TIME_UNIT_LENGTH_SECONDS;
-
-	if (G.prev_time > G.time)
-		G.prev_time = G.time;
 }
 
 void app_update()
@@ -42,8 +26,6 @@ void app_update()
 
 	G.framebuffer = plat_gfx_get_frame();
 	G.framebuffer_stride = SCREEN_STRIDE_BYTES;
-
-	track_current_time();
 
 	// update the effect
 	fx_meshes_update();
