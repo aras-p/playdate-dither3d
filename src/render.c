@@ -533,6 +533,12 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	// a pattern with more or less dots in it.
 	const float spacingMul = scaleExp * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
 
+	// We create sharp dots from them by increasing the contrast.
+	const float _Contrast = 1.0f;
+	const float baseContrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+	// The brighter output we want, the lower threshold we need to use
+	const float threshold = 255.0f - brightnessCurve;
+
 	// Rasterize: two rows at a time
 	for (int y = miny; y < maxy; y += 2, c1 += dx12 + dx12, c2 += dx23 + dx23, c3 += dx31 + dx31)
 	{
@@ -633,20 +639,14 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				subLayer_i = DITHER_SLICES - 1;
 			const int subLayer_offset = subLayer_i * DITHER_RES;
 
-			// We create sharp dots from them by increasing the contrast.
-			const float _Contrast = 1.0f;
-			float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
 			// The spacing is derived from the lowest frequency, but the
 			// contrast must be based on the highest frequency to avoid aliasing.
-			contrast *= freq_y / freq_x;
+			float contrast = baseContrast * freq_y / freq_x;
 
 			// The base brightness value that we scale the contrast around
 			// should normally be 0.5, but if the pattern is very blurred,
 			// that would just make the brightness everywhere close to 0.5.
-			float baseVal = lerp(0.5f, brightness / 255.0f, saturate(1.05f / (1.0f + contrast)));
-
-			// The brighter output we want, the lower threshold we need to use
-			float threshold = 1.0f - brightnessCurve / 255.0f;
+			float baseVal = lerp(128.0f, brightness, saturate(1.05f / (1.0f + contrast)));
 
 			// Get the UV coordinates in the current fractal level.
 			//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
@@ -682,10 +682,12 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 			// Get the pattern value relative to the threshold, scale it
 			// according to the contrast, and add the base value.
-			const float bw_00 = saturate((pattern_00 / 255.0f - threshold) * contrast + baseVal);
-			const float bw_01 = saturate((pattern_01 / 255.0f - threshold) * contrast + baseVal);
-			const float bw_10 = saturate((pattern_10 / 255.0f - threshold) * contrast + baseVal);
-			const float bw_11 = saturate((pattern_11 / 255.0f - threshold) * contrast + baseVal);
+			// Note: the terms are slightly reassociated compared to upstream, since
+			// we only need to threshold the result.
+			const float check_00 = (pattern_00 - threshold) * contrast + baseVal - 128.0f;
+			const float check_01 = (pattern_01 - threshold) * contrast + baseVal - 128.0f;
+			const float check_10 = (pattern_10 - threshold) * contrast + baseVal - 128.0f;
+			const float check_11 = (pattern_11 - threshold) * contrast + baseVal - 128.0f;
 
 			const int byte_idx_0 = (x + 0) / 8;
 			const int byte_idx_1 = (x + 1) / 8;
@@ -697,32 +699,28 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const bool inside_11 = edges_11 >= 0;
 			if (inside_00)
 			{
-				const bool check = bw_00 < 0.5f;
-				if (check)
+				if (check_00 < 0.0f)
 					output_0[byte_idx_0] &= ~mask_0;
 				else
 					output_0[byte_idx_0] |= mask_0;
 			}
 			if (inside_01)
 			{
-				const bool check = bw_01 < 0.5f;
-				if (check)
+				if (check_01 < 0.0f)
 					output_0[byte_idx_1] &= ~mask_1;
 				else
 					output_0[byte_idx_1] |= mask_1;
 			}
 			if (inside_10)
 			{
-				const bool check = bw_10 < 0.5f;
-				if (check)
+				if (check_10 < 0.0f)
 					output_1[byte_idx_0] &= ~mask_0;
 				else
 					output_1[byte_idx_0] |= mask_0;
 			}
 			if (inside_11)
 			{
-				const bool check = bw_11 < 0.5f;
-				if (check)
+				if (check_11 < 0.0f)
 					output_1[byte_idx_1] &= ~mask_1;
 				else
 					output_1[byte_idx_1] |= mask_1;
