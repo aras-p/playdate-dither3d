@@ -55,6 +55,7 @@ enum DrawStyle {
 	// 18fps (20fps no wire) checker, with perspective, no blue noise just b/w
 	Draw_Checker,
 	// 605ms device, 5.8ms PC
+	// 316ms device, 4.2ms PC adjust_float_exp
 	Draw_Dither3D,
 	Draw_Count
 };

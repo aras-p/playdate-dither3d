@@ -455,6 +455,19 @@ void draw_triangle_pineda(uint8_t* bitmap, int rowstride, const float3* p1, cons
 	}
 }
 
+// equivalent to `x / exp2f((float)i)`, provided we are not in
+// infinities / subnormals territory.
+static inline float adjust_float_exp(float x, int i)
+{
+	union {
+		float f;
+		uint32_t u;
+	} fu;
+	fu.f = x;
+	fu.u -= (uint32_t)i << 23;
+	return fu.f;
+}
+
 void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
 {
 	// convert coordinates to fixed point
@@ -588,13 +601,18 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 				// Find the power-of-two level that corresponds to the dot spacing.
 				float spacingLog = log2f(spacing);
-				float patternScaleLevel = floorf(spacingLog); // Fractal level.
+				const float patternScaleLevel = floorf(spacingLog); // Fractal level.
+				const int patternScaleLevel_i = (int)patternScaleLevel;
 				float f = spacingLog - patternScaleLevel; // Fractional part.
 
 				// Get the UV coordinates in the current fractal level.
-				const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
-				float uu = u * scaleLevelMul;
-				float vv = v * scaleLevelMul;
+				//const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
+				//float uu = u * scaleLevelMul;
+				//float vv = v * scaleLevelMul;
+				// instead of above, we can directly alter float exponent bits:
+				float uu = adjust_float_exp(u, patternScaleLevel_i);
+				float vv = adjust_float_exp(v, patternScaleLevel_i);
+
 				// Get the third coordinate for the 3D texture lookup.
 				float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
 				subLayer = subLayer - 0.5f;
