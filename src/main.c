@@ -17,7 +17,11 @@ void app_initialize()
 
 void app_update()
 {
-	// track inputs and time
+#if SHOW_STATS
+	plat_gfx_begin_stats();
+#endif
+
+	// track inputs
 	PlatButtons btCur, btPushed, btRel;
 	plat_input_get_buttons(&btCur, &btPushed, &btRel);
 	G.buttons_cur = btCur;
@@ -30,7 +34,7 @@ void app_update()
 	// update the effect
 	fx_meshes_update();
 
-	// draw FPS, time
+	// draw FPS, stats
 #if SHOW_STATS
 	plat_gfx_draw_stats(G.statval1, G.statval2);
 #endif

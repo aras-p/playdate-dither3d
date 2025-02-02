@@ -33,6 +33,7 @@ void plat_gfx_clear(SolidColor color);
 uint8_t* plat_gfx_get_frame();
 uint8_t* plat_gfx_get_debug_frame(); // RGBA per pixel
 void plat_gfx_mark_updated_rows(int start, int end);
+void plat_gfx_begin_stats();
 void plat_gfx_draw_stats(int par1, int par2);
 
 PlatBitmap* plat_gfx_load_bitmap(const char* file_path, const char** outerr);

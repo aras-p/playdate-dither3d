@@ -46,15 +46,41 @@ void plat_gfx_mark_updated_rows(int start, int end)
 {
 	s_pd->graphics->markUpdatedRows(start, end);
 }
+static float s_frame_beg_time = 0.0f;
+static float s_acc_delta_time = 0.0f;
+static int s_acc_frame_count = 0;
+static float s_disp_delta_time = 0.0f;
+
+void plat_gfx_begin_stats()
+{
+	s_frame_beg_time = plat_time_get();
+}
+
 void plat_gfx_draw_stats(int par1, int par2)
 {
-	s_pd->graphics->fillRect(0, 0, 64, 32, kColorWhite);
+	float cur_time = plat_time_get();
+	float dt = cur_time - s_frame_beg_time;
+	s_frame_beg_time = cur_time;
+	s_acc_delta_time += dt;
+	s_acc_frame_count++;
+	if (s_disp_delta_time == 0.0f)
+		s_disp_delta_time = dt;
+	if (s_acc_delta_time > 0.5f)
+	{
+		s_disp_delta_time = s_acc_delta_time / s_acc_frame_count;
+		s_acc_delta_time = 0;
+		s_acc_frame_count = 0;
+	}
+
+	// clear rect to white
+	s_pd->graphics->fillRect(0, 0, 220, 16, kColorWhite);
+
+	// draw text
 	char* buf;
-	int bufLen = s_pd->system->formatString(&buf, "a:%i b:%i", par1, par2);
+	int bufLen = s_pd->system->formatString(&buf, "%.1fms (%.1f FPS) a:%i b:%i", (double)(s_disp_delta_time * 1000.0f), (double)(1.0f / (s_disp_delta_time + 1.0e-20f)), par1, par2);
 	s_pd->graphics->setFont(s_font);
-	s_pd->graphics->drawText(buf, bufLen, kASCIIEncoding, 0, 16);
+	s_pd->graphics->drawText(buf, bufLen, kASCIIEncoding, 0, 0);
 	plat_free(buf);
-	s_pd->system->drawFPS(0, 0);
 }
 
 PlatBitmap* plat_gfx_load_bitmap(const char* file_path, const char** outerr)
@@ -294,10 +320,34 @@ static void draw_text(const char* msg, int bx, int by)
 	}
 }
 
+static float s_frame_beg_time = 0.0f;
+static float s_acc_delta_time = 0.0f;
+static int s_acc_frame_count = 0;
+static float s_disp_delta_time = 0.0f;
+
+void plat_gfx_begin_stats()
+{
+	s_frame_beg_time = plat_time_get();
+}
+
 void plat_gfx_draw_stats(int par1, int par2)
 {
+	float cur_time = plat_time_get();
+	float dt = cur_time - s_frame_beg_time;
+	s_frame_beg_time = cur_time;
+	s_acc_delta_time += dt;
+	s_acc_frame_count++;
+	if (s_disp_delta_time == 0.0f)
+		s_disp_delta_time = dt;
+	if (s_acc_frame_count > 60 || s_acc_delta_time > 0.5f)
+	{
+		s_disp_delta_time = s_acc_delta_time / s_acc_frame_count;
+		s_acc_delta_time = 0;
+		s_acc_frame_count = 0;
+	}
+
 	// clear rect to white
-	int rectx = 80;
+	int rectx = 220;
 	int recty = 16;
 	for (int y = 0; y < recty; ++y)
 	{
@@ -307,8 +357,8 @@ void plat_gfx_draw_stats(int par1, int par2)
 	}
 
 	// draw text
-	char buf[100];
-	snprintf(buf, sizeof(buf), "a:%i b:%i", par1, par2);
+	char buf[200];
+	snprintf(buf, sizeof(buf), "%.1fms (%.1f FPS) a:%i b:%i", s_disp_delta_time * 1000.0f, 1.0f / (s_disp_delta_time + 1.0e-20f), par1, par2);
 	draw_text(buf, 1, 1);
 }
 
