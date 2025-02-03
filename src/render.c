@@ -513,10 +513,11 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	const float uv3x = uvs[4] * invz3, uv3y = uvs[5] * invz3;
 
 	// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
+	// We use 4x4 dither pattern, but reduced texture XY resolution
 	// Note: no RADIAL_COMPENSATION
-#define DITHER_RES (64)
+#define DITHER_RES (32) // Note: upstream used 64
 #define DITHER_RES_MASK (DITHER_RES-1)
-#define DITHER_DOTS_PER_SIDE (DITHER_RES/16)
+#define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
 #define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
 
 	// Lookup brightness to make dither output have correct output

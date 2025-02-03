@@ -116,8 +116,8 @@ void init_pixel_ops()
 	}
 	{
 		int ww, hh;
-		s_dither4x4_r = read_tga_file_grayscale("Dither3D_4x4-r.tga", &ww, &hh);
-		if (ww != 64 || hh != 1024) {
+		s_dither4x4_r = read_tga_file_grayscale("Dither3D_4x4-sm-r.tga", &ww, &hh);
+		if (ww != 64/2 || hh != 1024/2) {
 			plat_free(s_dither4x4_r);
 			s_dither4x4_r = NULL;
 		}
