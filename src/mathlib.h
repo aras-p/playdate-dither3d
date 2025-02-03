@@ -28,6 +28,22 @@ static inline uint32_t swap(uint32_t n)
 #endif
 }
 
+// https://en.wikipedia.org/wiki/Fast_inverse_square_root
+inline float fast_rsqrt(float x)
+{
+	union {
+		float f;
+		uint32_t u;
+	} fu;
+	fu.f = x;
+	fu.u = 0x5f3759df - (fu.u >> 1);
+	fu.f *= 1.5f - (x * 0.5f * fu.f * fu.f);
+	return fu.f;
+}
+inline float fast_rcp(float x) { x = fast_rsqrt(x); return x * x; }
+inline float fast_div(float x, float y) { return x * fast_rsqrt(y); }
+inline float fast_sqrt(float x) { return x * fast_rsqrt(x); }
+
 static inline int min2(int a, int b)
 {
 	return a < b ? a : b;

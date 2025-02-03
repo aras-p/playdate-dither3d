@@ -525,17 +525,17 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	// Note: _SizeVariability fixed to default 0.0, following math simplified
 	const float brightnessSpacingMultiplier = 1.0f / (brightnessCurve / 255.0f * 2.0f);
 
-	const float _Scale = 6.0f;
-	const float scaleExp = exp2f(_Scale);
+#define DITHER_SCALE (6.0f)
+#define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
 
 	// Scale the spacing by the specified input (power of two) scale.
 	// We keep the spacing the same regardless of whether we're using
 	// a pattern with more or less dots in it.
-	const float spacingMul = scaleExp * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
+	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
 
 	// We create sharp dots from them by increasing the contrast.
 	const float _Contrast = 1.0f;
-	const float contrast = _Contrast * scaleExp * brightnessSpacingMultiplier * 0.1f;
+	const float contrast = _Contrast * DITHER_SCALE_EXP * brightnessSpacingMultiplier * 0.1f;
 
 	// The base brightness value that we scale the contrast around
 	// should normally be 0.5, but if the pattern is very blurred,
@@ -566,6 +566,7 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				continue;
 
 			// Barycentric coordinates for pixels
+			// Note: fast_rcp is same performance as division currently, with more artifacts. Keep division for now.
 			const float bary_scale_00 = 1.0f / (cx1_00 * invz3 + cx2_00 * invz1 + cx3_00 * invz2);
 			const float bary_scale_01 = 1.0f / (cx1_01 * invz3 + cx2_01 * invz1 + cx3_01 * invz2);
 			const float bary_scale_10 = 1.0f / (cx1_10 * invz3 + cx2_10 * invz1 + cx3_10 * invz2);
