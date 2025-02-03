@@ -334,6 +334,9 @@ void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p
 	}
 }
 
+// --------------------------------------------------------------------------
+// Half-space / barycentric triangle rasterizer
+
 // References: Fabian Giesen's blog / pouet.net posts:
 // - "The barycentric conspiracy" https://fgiesen.wordpress.com/2013/02/06/the-barycentric-conspirac/
 // - "Triangle rasterization in practice" https://fgiesen.wordpress.com/2013/02/08/triangle-rasterization-in-practice/
@@ -343,7 +346,6 @@ void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p
 
 #define SUBPIXEL_SHIFT (4)
 #define SUBPIXEL_SCALE (1 << SUBPIXEL_SHIFT)
-#define BLOCKSIZE (8)
 
 static inline int det2x2(int a, int b, int c, int d)
 {
@@ -370,92 +372,6 @@ static int fixed_ceil(int x)
 	return (x + SUBPIXEL_SCALE - 1) >> SUBPIXEL_SHIFT;
 }
 
-#define PINEDA_INTERP_CORRECT 1
-
-void draw_triangle_pineda(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t col)
-{
-	// convert coordinates to fixed point
-	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
-	int x2 = to_fixed(p2->x), y2 = to_fixed(p2->y);
-	int x3 = to_fixed(p3->x), y3 = to_fixed(p3->y);
-	// check triangle winding order
-	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
-	if (det == 0)
-		return; // zero area
-	if (det > 0)
-		return; // wrong winding
-
-	// bounding box / clipping
-	int minx = max2(fixed_ceil(min3(x1, x2, x3)), 0);
-	int miny = max2(fixed_ceil(min3(y1, y2, y3)), 0);
-	int maxx = min2(fixed_ceil(max3(x1, x2, x3)), SCREEN_X);
-	int maxy = min2(fixed_ceil(max3(y1, y2, y3)), SCREEN_Y);
-	if (minx >= maxx || miny >= maxy)
-		return;
-
-	// Edge vectors
-	int dx12 = x1 - x2, dy12 = y2 - y1;
-	int dx23 = x2 - x3, dy23 = y3 - y2;
-	int dx31 = x3 - x1, dy31 = y1 - y3;
-
-	// Edge functions
-	int minx_fx = minx << SUBPIXEL_SHIFT;
-	int miny_fx = miny << SUBPIXEL_SHIFT;
-	int c1 = det2x2_fill_rule(dx12, minx_fx - x1, dy12, miny_fx - y1);
-	int c2 = det2x2_fill_rule(dx23, minx_fx - x2, dy23, miny_fx - y2);
-	int c3 = det2x2_fill_rule(dx31, minx_fx - x3, dy31, miny_fx - y3);
-
-	float uv1x = uvs[0], uv1y = uvs[1];
-	float uv2x = uvs[2], uv2y = uvs[3];
-	float uv3x = uvs[4], uv3y = uvs[5];
-#if PINEDA_INTERP_CORRECT
-	// https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/perspective-correct-interpolation-vertex-attributes.html
-	float invz1 = 1.0f / p1->z, invz2 = 1.0f / p2->z, invz3 = 1.0f / p3->z;
-	uv1x *= invz1, uv1y *= invz1;
-	uv2x *= invz2, uv2y *= invz2;
-	uv3x *= invz3, uv3y *= invz3;
-#else
-	float bary_scale = 1.0f / (c1 + c2 + c3);
-#endif
-
-	// Rasterize
-	for (int y = miny; y < maxy; ++y)
-	{
-		uint8_t* output = bitmap + y * rowstride;
-		int cx1 = c1, cx2 = c2, cx3 = c3;
-		for (int x = minx; x < maxx; x++)
-		{
-			if ((cx1 | cx2 | cx3 /*| cx4*/) >= 0) // pixel is inside
-			{
-#if PINEDA_INTERP_CORRECT
-				float bary_scale = 1.0f / (cx1 * invz3 + cx2 * invz1 + cx3 * invz2);
-#endif
-				float bar_1 = cx1 * bary_scale;
-				float bar_2 = cx2 * bary_scale;
-				float bar_3 = cx3 * bary_scale;
-				float u = uv3x * bar_1 + uv1x * bar_2 + uv2x * bar_3;
-				float v = uv3y * bar_1 + uv1y * bar_2 + uv2y * bar_3;
-				u = fract(u * 5.0f);
-				v = fract(v * 5.0f);
-				bool check = (u > 0.5f) != (v > 0.5f);
-				int byte_idx = x / 8;
-				int mask = 1 << (7 - (x & 7));
-				if (check)
-					output[byte_idx] &= ~mask;
-				else
-					output[byte_idx] |= mask;
-			}
-			cx1 += dy12;
-			cx2 += dy23;
-			cx3 += dy31;
-		}
-		c1 += dx12;
-		c2 += dx23;
-		c3 += dx31;
-	}
-}
-
-
 typedef struct raster_halfspace_t
 {
 	// bounding box in pixels
@@ -475,7 +391,29 @@ typedef struct raster_halfspace_t
 	float uv3x, uv3y;
 } raster_halfspace_t;
 
-static inline bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
+typedef struct raster_halfspace_state_t
+{
+	int x, y;
+	int c1, c2, c3;
+	int cx1_00, cx2_00, cx3_00;
+
+	bool first;
+	float u_00, u_10, u_01, u_11, u_02, u_12;
+	float v_00, v_10, v_01, v_11, v_02, v_12;
+
+	float dxu, dxv, dyu, dyv;
+
+	int cx1_10, cx2_10, cx3_10;
+	int cx1_01, cx2_01, cx3_01;
+	int cx1_11, cx2_11, cx3_11;
+	bool inside_00, inside_01, inside_10, inside_11;
+} raster_halfspace_state_t;
+
+// Note: force inlining is needed on all these functions. Otherwise even with "static inline" the compiler
+// decides to not inline some of them as soon as one than more call site is present, drastically reducing
+// performance on Playdate.
+
+FORCE_INLINE bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
 {
 	// convert coordinates to fixed point
 	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
@@ -521,25 +459,7 @@ static inline bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* 
 	return true;
 }
 
-typedef struct raster_halfspace_state_t
-{
-	int x, y;
-	int c1, c2, c3;
-	int cx1_00, cx2_00, cx3_00;
-
-	bool first;
-	float u_00, u_10, u_01, u_11, u_02, u_12;
-	float v_00, v_10, v_01, v_11, v_02, v_12;
-
-	float dxu, dxv, dyu, dyv;
-
-	int cx1_10, cx2_10, cx3_10;
-	int cx1_01, cx2_01, cx3_01;
-	int cx1_11, cx2_11, cx3_11;
-	bool inside_00, inside_01, inside_10, inside_11;
-} raster_halfspace_state_t;
-
-static inline void raster_halfspace_y_begin(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE void raster_halfspace_y_begin(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	memset(state, 0, sizeof(*state));
 
@@ -549,12 +469,12 @@ static inline void raster_halfspace_y_begin(const raster_halfspace_t* hs, raster
 	state->c3 = hs->c3;
 }
 
-static inline bool raster_halfspace_y_continue(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE bool raster_halfspace_y_continue(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	return state->y < hs->maxy;
 }
 
-static inline void raster_halfspace_y_step(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE void raster_halfspace_y_step(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	state->c1 += hs->dx12 * 2;
 	state->c2 += hs->dx23 * 2;
@@ -562,19 +482,19 @@ static inline void raster_halfspace_y_step(const raster_halfspace_t* hs, raster_
 	state->y += 2;
 }
 
-static inline void raster_halfspace_x_begin(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE void raster_halfspace_x_begin(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	state->cx1_00 = state->c1; state->cx2_00 = state->c2; state->cx3_00 = state->c3;
 	state->first = true;
 	state->x = hs->minx;
 }
 
-static inline bool raster_halfspace_x_continue(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE bool raster_halfspace_x_continue(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	return state->x < hs->maxx;
 }
 
-static inline void raster_halfspace_x_step(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE void raster_halfspace_x_step(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	state->cx1_00 += hs->dy12 * 2;
 	state->cx2_00 += hs->dy23 * 2;
@@ -589,7 +509,7 @@ static inline void raster_halfspace_x_step(const raster_halfspace_t* hs, raster_
 	state->v_10 = state->v_12;
 }
 
-static inline int raster_halfspace_x_inner(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
+FORCE_INLINE int raster_halfspace_x_inner(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
 {
 	state->cx1_10 = state->cx1_00 + hs->dx12, state->cx2_10 = state->cx2_00 + hs->dx23, state->cx3_10 = state->cx3_00 + hs->dx31;
 	state->cx1_01 = state->cx1_00 + hs->dy12, state->cx2_01 = state->cx2_00 + hs->dy23, state->cx3_01 = state->cx3_00 + hs->dy31;
@@ -663,6 +583,12 @@ static inline int raster_halfspace_x_inner(const raster_halfspace_t* hs, raster_
 }
 
 
+// --------------------------------------------------------------------------
+// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
+// We use 4x4 dither pattern, but reduced texture XY resolution
+// And a bunch of other simplifications
+
+
 // equivalent to `x / exp2f((float)i)`, provided we are not in
 // infinities / subnormals territory.
 static inline float adjust_float_exp(float x, int i)
@@ -676,8 +602,6 @@ static inline float adjust_float_exp(float x, int i)
 	return fu.f;
 }
 
-// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
-// We use 4x4 dither pattern, but reduced texture XY resolution
 // Note: no RADIAL_COMPENSATION
 #define DITHER_RES (32) // Note: upstream used 64
 #define DITHER_RES_MASK (DITHER_RES-1)
@@ -730,7 +654,7 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 	return pattern < compare;
 }
 
-void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
 {
 	raster_halfspace_t hs;
 	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
@@ -772,10 +696,8 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 		for (raster_halfspace_x_begin(&hs, &state); raster_halfspace_x_continue(&hs, &state); raster_halfspace_x_step(&hs, &state))
 		{
 			int inner = raster_halfspace_x_inner(&hs, &state);
-			if (inner == 1)
-				break;
-			if (inner == 2)
-				continue;
+			if (inner == 1) break;
+			if (inner == 2) continue;
 
 			// We define a spacing variable which linearly correlates with
 			// the average distance between dots.
@@ -852,6 +774,77 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 		}
 	}
 }
+
+// --------------------------------------------------------------------------
+// Simple pure black/white checkerboard with halfspace rasterizer
+
+FORCE_INLINE bool do_checker(float u, float v)
+{
+	u = fract(u * 5.0f);
+	v = fract(v * 5.0f);
+	return (u > 0.5f) != (v > 0.5f);
+}
+
+void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
+{
+	raster_halfspace_t hs;
+	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
+		return;
+
+	raster_halfspace_state_t state;
+	for (raster_halfspace_y_begin(&hs, &state); raster_halfspace_y_continue(&hs, &state); raster_halfspace_y_step(&hs, &state))
+	{
+		uint8_t* output_0 = bitmap + state.y * rowstride;
+		uint8_t* output_1 = output_0 + rowstride;
+		for (raster_halfspace_x_begin(&hs, &state); raster_halfspace_x_continue(&hs, &state); raster_halfspace_x_step(&hs, &state))
+		{
+			int inner = raster_halfspace_x_inner(&hs, &state);
+			if (inner == 1) break;
+			if (inner == 2) continue;
+
+			const int byte_idx = state.x / 8;
+			const int mask_0 = 1 << (7 - ((state.x + 0) & 7));
+			const int mask_1 = 1 << (7 - ((state.x + 1) & 7));
+
+			if (state.inside_00)
+			{
+				bool check = do_checker(state.u_00, state.v_00);
+				if (check)
+					output_0[byte_idx] &= ~mask_0;
+				else
+					output_0[byte_idx] |= mask_0;
+			}
+			if (state.inside_01)
+			{
+				bool check = do_checker(state.u_01, state.v_01);
+				if (check)
+					output_0[byte_idx] &= ~mask_1;
+				else
+					output_0[byte_idx] |= mask_1;
+			}
+			if (state.inside_10)
+			{
+				bool check = do_checker(state.u_10, state.v_10);
+				if (check)
+					output_1[byte_idx] &= ~mask_0;
+				else
+					output_1[byte_idx] |= mask_0;
+			}
+			if (state.inside_11)
+			{
+				bool check = do_checker(state.u_11, state.v_11);
+				if (check)
+					output_1[byte_idx] &= ~mask_1;
+				else
+					output_1[byte_idx] |= mask_1;
+			}
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// Overall scene rendering
+
 
 void scene_init(Scene* scene)
 {
@@ -1059,14 +1052,10 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
 		}
 	}
-	else if (style == Draw_Checker)
+	else if (style == Draw_Checker_Halfspace)
 	{
 		// draw strictly black/white checker based on UV coordinates
-		int col = (int)(v * 255.0f);
-		if (col < 0) col = 0;
-		if (col > 255) col = 255;
-
-		draw_triangle_pineda(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col);
+		draw_triangle_checker_halfspace(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
 
 		if (wire)
 		{
@@ -1076,14 +1065,10 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 		}
 	}
-	else if (style == Draw_Dither3D)
+	else if (style == Draw_Dither3D_Halfspace)
 	{
 		// draw strictly black/white checker based on UV coordinates
-		int col = (int)(v * 255.0f);
-		if (col < 0) col = 0;
-		if (col > 255) col = 255;
-
-		draw_triangle_dither3d(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
+		draw_triangle_dither3d_halfspace(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
 
 		if (wire)
 		{

@@ -48,12 +48,13 @@ enum DrawStyle {
 	// 45fps
 	Draw_Pattern = 0,
 	// 26fps (32 no wire)
-	Draw_Bluenoise, 
-	// 26fps simle (as bluenoise, just with halfspace raster)
+	Draw_Bluenoise,
+
+	// 26fps simple (as bluenoise, just with halfspace raster)
 	// 17fps (20fps no wire) checker, no perspective correction
 	// 15fps (17fps no wire) checker, with perspective correction
 	// 18fps (20fps no wire) checker, with perspective, no blue noise just b/w
-	Draw_Checker,
+	Draw_Checker_Halfspace,
 	// 605ms device, 5.8ms PC
 	// 316ms device, 4.2ms PC adjust_float_exp
 	// 246ms device, 2.7ms PC bit manip for patternScaleLevel and f
@@ -66,7 +67,7 @@ enum DrawStyle {
 	// 76ms device, perspective correct UVs at 2x horizontal step
 	// 74ms device, skip rest of row once we get out of triangle
 	// 65ms device, simplify sampled pattern comparison
-	Draw_Dither3D,
+	Draw_Dither3D_Halfspace,
 	Draw_Count
 };
 
