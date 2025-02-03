@@ -699,12 +699,8 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const float f = fu.f - 1.0f;
 
 			// Get the third coordinate for the 3D texture lookup.
-			float subLayer = lerp(0.25f * DITHER_SLICES, DITHER_SLICES, 1.0f - f);
-			subLayer = subLayer - 0.5f;
-			int subLayer_i = DITHER_SLICES - 1 - (int)subLayer;
-			if (subLayer_i < 0) subLayer_i = 0;
-			if (subLayer_i >= DITHER_SLICES)
-				subLayer_i = DITHER_SLICES - 1;
+			// Note: simplified the math terms compared to upstream.
+			const int subLayer_i = (int)(0.75f * DITHER_SLICES * f + 0.5f);
 			const int subLayer_offset = subLayer_i * DITHER_RES;
 
 			// Note: accumulating pixel outputs/masks into 32 bit words and writing them out
