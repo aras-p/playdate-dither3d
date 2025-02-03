@@ -61,6 +61,8 @@ enum DrawStyle {
 	// 137ms device, 1.3ms simplification to contrast maths
 	// 123ms device, 1.4ms move final sampling inside visibility check for each 2x2 pixel
 	// 107ms device, 1.3ms simplify spacing & contrast calc (behavior change!)
+	// 83ms device, reduce dither texture resolution 2x on XY
+	// 80ms device, enable -ffast-math
 	Draw_Dither3D,
 	Draw_Count
 };

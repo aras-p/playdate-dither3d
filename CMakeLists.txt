@@ -67,8 +67,11 @@ set (DEMO_SOURCES
 
 if (TOOLCHAIN STREQUAL "armgcc")
 	add_executable(${PLAYDATE_GAME_DEVICE} ${DEMO_SOURCES})
-	# leave assembly files in build artifacts
-	target_compile_options(${PLAYDATE_GAME_DEVICE} PRIVATE -save-temps)
+	
+	target_compile_options(${PLAYDATE_GAME_DEVICE} PRIVATE
+		-ffast-math # enable fast/sloppy math
+		-save-temps # leave assembly files in build artifacts
+	)
 	target_compile_definitions(${PLAYDATE_GAME_DEVICE} PRIVATE BUILD_PLATFORM_PLAYDATE)
 elseif(IS_PLAYDATE_OR_SIM)
 	add_library(${PLAYDATE_GAME_NAME} SHARED ${DEMO_SOURCES})
