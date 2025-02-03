@@ -613,7 +613,12 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const int edges_10 = cx1_10 | cx2_10 | cx3_10;
 			const int edges_11 = cx1_11 | cx2_11 | cx3_11;
 			if ((edges_00 & edges_01 & edges_10 & edges_11) < 0) // all 4 pixels are outside
-				continue;
+			{
+				if (!first)
+					break; // We already were inside triangle and got out, can skip the rest of the row
+				else
+					continue; // Continue to next 2x2 block
+			}
 
 			// Barycentric coordinates for pixels.
 			// Note: fast_rcp is same performance as division currently, with more artifacts. Keep division for now.

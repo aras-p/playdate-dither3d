@@ -64,6 +64,7 @@ enum DrawStyle {
 	// 83ms device, reduce dither texture resolution 2x on XY
 	// 80ms device, enable -ffast-math
 	// 76ms device, perspective correct UVs at 2x horizontal step
+	// 74ms device, skip rest of row once we get out of triangle
 	Draw_Dither3D,
 	Draw_Count
 };
