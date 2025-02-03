@@ -17,8 +17,9 @@ Bayer or Blue Noise dither patterns is the way to go due to their simplicity.
 However! It was fairly fun hacking on this. Amusingly enough, I have never written a perspective-correct interpolating
 triangle rasterizer, etc. So this was a good learning experience. For reference, a non-perspective-correct vs. correct
 texture coordinate interpolation:
-![Screenshot](/img/250131b-checker-side.png?raw=true "Screenshot")
-![Screenshot](/img/250131c-checker-side-persp.png?raw=true "Screenshot")
+|Not correct |Correct |
+|-|-|
+| ![Screenshot](/img/250131b-checker-side.png?raw=true "Screenshot") | ![Screenshot](/img/250131c-checker-side-persp.png?raw=true "Screenshot") |
 
 Current status:
 - The really simple scene in the first image runs at **13 frames per second** on a Playdate.
