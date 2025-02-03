@@ -34,6 +34,8 @@ Current status:
 - It is entirely possible that there's a ton of low hanging fruit w.r.t. optimizations that I have
   overlooked so far.
 
+Most of the code layout and structure is taken from [Everybody Wants to Crank the World](https://github.com/aras-p/demo-pd-cranktheworld)
+demo I made in 2024. As such, it compiles on Playdate, and on PC as well (via Sokol).
 
 ### License
 
