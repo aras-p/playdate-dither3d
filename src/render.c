@@ -468,6 +468,61 @@ static inline float adjust_float_exp(float x, int i)
 	return fu.f;
 }
 
+// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
+// We use 4x4 dither pattern, but reduced texture XY resolution
+// Note: no RADIAL_COMPENSATION
+#define DITHER_RES (32) // Note: upstream used 64
+#define DITHER_RES_MASK (DITHER_RES-1)
+#define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
+#define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
+
+FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const float threshold, const float contrast, const float baseVal, const int x, const int y)
+{
+	// Get the UV coordinates in the current fractal level.
+	// const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
+	// float uu = u * scaleLevelMul;
+	// float vv = v * scaleLevelMul;
+	// instead of above, we can directly alter float exponent bits:
+	const float uu = adjust_float_exp(u, patternScaleLevel_i);
+	const float vv = adjust_float_exp(v, patternScaleLevel_i);
+	// Sample the 3D texture.
+	const int u3d = (unsigned)((int)(uu * DITHER_RES)) & DITHER_RES_MASK;
+	const int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK;
+	const int texel_idx = (subLayer_offset + v3d) * DITHER_RES + u3d;
+	const uint8_t pattern = s_dither4x4_r[texel_idx];
+	// Get the pattern value relative to the threshold, scale it
+	// according to the contrast, and add the base value.
+	// Note: the terms are slightly reassociated compared to upstream, since
+	// we only need to threshold the result.
+	const float check = (pattern - threshold) * contrast + baseVal;
+
+#if 0
+	uint8_t* debug_output = plat_gfx_get_debug_frame();
+	if (debug_output) {
+		float3 dbg = (float3){ 0,0,0 };
+
+		// UV
+		dbg.x = fract(u), dbg.y = fract(v);
+
+		// fractal UV
+		//dbg.x = fract(uu), dbg.y = fract(vv);
+
+		// pattern
+		dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+
+		// bw
+		//dbg.x = dbg.y = dbg.z = check < 0.0f ? 0.0f : 1.0f;
+
+		const int offset = (y * SCREEN_X + x) * 4 + 0;
+		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
+		debug_output[offset + 1] = (uint8_t)(saturate(dbg.y) * 255.0f);
+		debug_output[offset + 2] = (uint8_t)(saturate(dbg.z) * 255.0f);
+		debug_output[offset + 3] = 255;
+	}
+#endif
+	return check < 0.0f;
+}
+
 void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
 {
 	// convert coordinates to fixed point
@@ -511,14 +566,6 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	const float uv1x = uvs[0] * invz1, uv1y = uvs[1] * invz1;
 	const float uv2x = uvs[2] * invz2, uv2y = uvs[3] * invz2;
 	const float uv3x = uvs[4] * invz3, uv3y = uvs[5] * invz3;
-
-	// Dither3D based on https://github.com/runevision/Dither3D/blob/main/Assets/Dither3D/Dither3DInclude.cginc
-	// We use 4x4 dither pattern, but reduced texture XY resolution
-	// Note: no RADIAL_COMPENSATION
-#define DITHER_RES (32) // Note: upstream used 64
-#define DITHER_RES_MASK (DITHER_RES-1)
-#define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
-#define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
 
 	// Lookup brightness to make dither output have correct output
 	// brightness at different input brightness values.
@@ -647,53 +694,34 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			const bool inside_10 = edges_10 >= 0;
 			const bool inside_11 = edges_11 >= 0;
 
-#define DO_PIXEL_SAMPLE3D(idx) \
-			/* Get the UV coordinates in the current fractal level. */ \
-			/* const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel); */ \
-			/* float uu = u * scaleLevelMul; */ \
-			/* float vv = v * scaleLevelMul; */ \
-			/* instead of above, we can directly alter float exponent bits: */ \
-			const float uu = adjust_float_exp(u_##idx, patternScaleLevel_i); \
-			const float vv = adjust_float_exp(v_##idx, patternScaleLevel_i); \
-			/* Sample the 3D texture. */ \
-			const int u3d = (unsigned)((int)(uu * DITHER_RES)) & DITHER_RES_MASK; \
-			const int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK; \
-			const int texel_idx = (subLayer_offset + v3d) * DITHER_RES + u3d; \
-			const uint8_t pattern = s_dither4x4_r[texel_idx]; \
-			/* Get the pattern value relative to the threshold, scale it */ \
-			/* according to the contrast, and add the base value. */ \
-			/* Note: the terms are slightly reassociated compared to upstream, since */ \
-			/* we only need to threshold the result. */ \
-			const float check = (pattern - threshold) * contrast + baseVal
-
 			if (inside_00)
 			{
-				DO_PIXEL_SAMPLE3D(00);
-				if (check < 0.0f)
+				bool check = do_pixel_sample(u_00, v_00, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x, y);
+				if (check)
 					output_0[byte_idx_0] &= ~mask_0;
 				else
 					output_0[byte_idx_0] |= mask_0;
 			}
 			if (inside_01)
 			{
-				DO_PIXEL_SAMPLE3D(01);
-				if (check < 0.0f)
+				bool check = do_pixel_sample(u_01, v_01, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x + 1, y);
+				if (check)
 					output_0[byte_idx_1] &= ~mask_1;
 				else
 					output_0[byte_idx_1] |= mask_1;
 			}
 			if (inside_10)
 			{
-				DO_PIXEL_SAMPLE3D(10);
-				if (check < 0.0f)
+				bool check = do_pixel_sample(u_10, v_10, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x, y + 1);
+				if (check)
 					output_1[byte_idx_0] &= ~mask_0;
 				else
 					output_1[byte_idx_0] |= mask_0;
 			}
 			if (inside_11)
 			{
-				DO_PIXEL_SAMPLE3D(11);
-				if (check < 0.0f)
+				bool check = do_pixel_sample(u_11, v_11, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x + 1, y + 1);
+				if (check)
 					output_1[byte_idx_1] &= ~mask_1;
 				else
 					output_1[byte_idx_1] |= mask_1;
