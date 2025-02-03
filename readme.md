@@ -22,7 +22,11 @@ texture coordinate interpolation:
 | ![Screenshot](/img/250131b-checker-side.png?raw=true "Screenshot") | ![Screenshot](/img/250131c-checker-side-persp.png?raw=true "Screenshot") |
 
 Current status:
-- The really simple scene in the first image runs at **13 frames per second** on a Playdate.
+- The really simple scene in the first image runs at **13 frames per second** on a Playdate. Initially I had it running at 2FPS.
+  Currently it has some simplifications and behavior changes compared to full Rune's technique:
+  - Dot spacing is fixed (6.0),
+  - Dither pattern is 4x4 Bayer one, but with texture XY resolution reduced twice (i.e. 3D texture is 32x32x16).
+  - No anisotropic derivatives handling nor contrast tweaking based on that.
 - Rasterizer is a half-space based one, processing 2x2 pixel blocks in one iteration, and doing perspective
   correct UV interpolation every 2 pixels horizontally.
 - Very likely that a traditional "scanline" triangle rasterizer would be a better fit for the
