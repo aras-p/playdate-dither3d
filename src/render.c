@@ -597,15 +597,17 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	for (int y = miny; y < maxy; y += 2, c1 += dx12 + dx12, c2 += dx23 + dx23, c3 += dx31 + dx31)
 	{
 		uint8_t* output_0 = bitmap + y * rowstride;
-		uint8_t* output_1 = output_0 + rowstride;
-		int cx1_00 = c1, cx2_00 = c2, cx3_00 = c3;
+		uint8_t* output_1 = output_0 + rowstride;		
+		int cx1_00 = c1, cx2_00 = c2, cx3_00 = c3; // Naming of suffixes: _YX, i.e. _01 is at x+1,y.
 
 		// Two columns at a time
+		bool first = true;
+		float u_00, u_10, v_00, v_10;
 		for (int x = minx; x < maxx; x += 2, cx1_00 += dy12 + dy12, cx2_00 += dy23 + dy23, cx3_00 += dy31 + dy31)
 		{
-			int cx1_10 = cx1_00 + dx12, cx2_10 = cx2_00 + dx23, cx3_10 = cx3_00 + dx31;
-			int cx1_01 = cx1_00 + dy12, cx2_01 = cx2_00 + dy23, cx3_01 = cx3_00 + dy31;
-			int cx1_11 = cx1_10 + dy12, cx2_11 = cx2_10 + dy23, cx3_11 = cx3_10 + dy31;
+			const int cx1_10 = cx1_00 + dx12, cx2_10 = cx2_00 + dx23, cx3_10 = cx3_00 + dx31;
+			const int cx1_01 = cx1_00 + dy12, cx2_01 = cx2_00 + dy23, cx3_01 = cx3_00 + dy31;
+			const int cx1_11 = cx1_10 + dy12, cx2_11 = cx2_10 + dy23, cx3_11 = cx3_10 + dy31;
 			const int edges_00 = cx1_00 | cx2_00 | cx3_00;
 			const int edges_01 = cx1_01 | cx2_01 | cx3_01;
 			const int edges_10 = cx1_10 | cx2_10 | cx3_10;
@@ -613,34 +615,48 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 			if ((edges_00 & edges_01 & edges_10 & edges_11) < 0) // all 4 pixels are outside
 				continue;
 
-			// Barycentric coordinates for pixels
+			// Barycentric coordinates for pixels.
 			// Note: fast_rcp is same performance as division currently, with more artifacts. Keep division for now.
-			const float bary_scale_00 = 1.0f / (cx1_00 * invz3 + cx2_00 * invz1 + cx3_00 * invz2);
-			const float bary_scale_01 = 1.0f / (cx1_01 * invz3 + cx2_01 * invz1 + cx3_01 * invz2);
-			const float bary_scale_10 = 1.0f / (cx1_10 * invz3 + cx2_10 * invz1 + cx3_10 * invz2);
-			const float bary_scale_11 = 1.0f / (cx1_11 * invz3 + cx2_11 * invz1 + cx3_11 * invz2);
-			const float bar_1_00 = cx1_00 * bary_scale_00;
-			const float bar_1_01 = cx1_01 * bary_scale_01;
-			const float bar_1_10 = cx1_10 * bary_scale_10;
-			const float bar_1_11 = cx1_11 * bary_scale_11;
-			const float bar_2_00 = cx2_00 * bary_scale_00;
-			const float bar_2_01 = cx2_01 * bary_scale_01;
-			const float bar_2_10 = cx2_10 * bary_scale_10;
-			const float bar_2_11 = cx2_11 * bary_scale_11;
-			const float bar_3_00 = cx3_00 * bary_scale_00;
-			const float bar_3_01 = cx3_01 * bary_scale_01;
-			const float bar_3_10 = cx3_10 * bary_scale_10;
-			const float bar_3_11 = cx3_11 * bary_scale_11;
+			// We only compute proper perspective correct barycentrics and UVs at each x2 horizontal step, i.e.
+			// even pixels. The x+1 pixel interpolates between x+0 and x+2.
+			if (first)
+			{
+				// First 2x2 block in this row, calculate UVs for x+0 pixels.
+				const float bary_scale_00 = 1.0f / (cx1_00 * invz3 + cx2_00 * invz1 + cx3_00 * invz2);
+				const float bary_scale_10 = 1.0f / (cx1_10 * invz3 + cx2_10 * invz1 + cx3_10 * invz2);
+				const float bar_1_00 = cx1_00 * bary_scale_00;
+				const float bar_1_10 = cx1_10 * bary_scale_10;
+				const float bar_2_00 = cx2_00 * bary_scale_00;
+				const float bar_2_10 = cx2_10 * bary_scale_10;
+				const float bar_3_00 = cx3_00 * bary_scale_00;
+				const float bar_3_10 = cx3_10 * bary_scale_10;
+				u_00 = uv3x * bar_1_00 + uv1x * bar_2_00 + uv2x * bar_3_00;
+				u_10 = uv3x * bar_1_10 + uv1x * bar_2_10 + uv2x * bar_3_10;
+				v_00 = uv3y * bar_1_00 + uv1y * bar_2_00 + uv2y * bar_3_00;
+				v_10 = uv3y * bar_1_10 + uv1y * bar_2_10 + uv2y * bar_3_10;
+				first = false;
+			}
+			// Barycentrics and UVs for x+2 pixels.
+			const int cx1_02 = cx1_01 + dy12, cx2_02 = cx2_01 + dy23, cx3_02 = cx3_01 + dy31;
+			const int cx1_12 = cx1_11 + dy12, cx2_12 = cx2_11 + dy23, cx3_12 = cx3_11 + dy31;
+			const float bary_scale_02 = 1.0f / (cx1_02 * invz3 + cx2_02 * invz1 + cx3_02 * invz2);
+			const float bary_scale_12 = 1.0f / (cx1_12 * invz3 + cx2_12 * invz1 + cx3_12 * invz2);
+			const float bar_1_02 = cx1_02 * bary_scale_02;
+			const float bar_1_12 = cx1_12 * bary_scale_12;
+			const float bar_2_02 = cx2_02 * bary_scale_02;
+			const float bar_2_12 = cx2_12 * bary_scale_12;
+			const float bar_3_02 = cx3_02 * bary_scale_02;
+			const float bar_3_12 = cx3_12 * bary_scale_12;
+			const float u_02 = uv3x * bar_1_02 + uv1x * bar_2_02 + uv2x * bar_3_02;
+			const float u_12 = uv3x * bar_1_12 + uv1x * bar_2_12 + uv2x * bar_3_12;
+			const float v_02 = uv3y * bar_1_02 + uv1y * bar_2_02 + uv2y * bar_3_02;
+			const float v_12 = uv3y * bar_1_12 + uv1y * bar_2_12 + uv2y * bar_3_12;
 
-			// UVs
-			const float u_00 = uv3x * bar_1_00 + uv1x * bar_2_00 + uv2x * bar_3_00;
-			const float u_01 = uv3x * bar_1_01 + uv1x * bar_2_01 + uv2x * bar_3_01;
-			const float u_10 = uv3x * bar_1_10 + uv1x * bar_2_10 + uv2x * bar_3_10;
-			const float u_11 = uv3x * bar_1_11 + uv1x * bar_2_11 + uv2x * bar_3_11;
-			const float v_00 = uv3y * bar_1_00 + uv1y * bar_2_00 + uv2y * bar_3_00;
-			const float v_01 = uv3y * bar_1_01 + uv1y * bar_2_01 + uv2y * bar_3_01;
-			const float v_10 = uv3y * bar_1_10 + uv1y * bar_2_10 + uv2y * bar_3_10;
-			const float v_11 = uv3y * bar_1_11 + uv1y * bar_2_11 + uv2y * bar_3_11;
+			// Interpolate UVs for x+1 pixels.
+			const float u_01 = (u_02 + u_00) * 0.5f;
+			const float u_11 = (u_12 + u_10) * 0.5f;
+			const float v_01 = (v_02 + v_00) * 0.5f;
+			const float v_11 = (v_12 + v_10) * 0.5f;
 
 			// UV derivatives
 			const float dyu = u_01 - u_00;
@@ -758,10 +774,10 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				//dbg.x = dbg.y = dbg.z = spacing;
 
 				// fractal UV
-				//dbg_00.x = fract(uu_00), dbg_00.y = fract(vv_00);
-				//dbg_01.x = fract(uu_01), dbg_01.y = fract(vv_01);
-				//dbg_10.x = fract(uu_10), dbg_10.y = fract(vv_10);
-				//dbg_11.x = fract(uu_11), dbg_11.y = fract(vv_11);
+				dbg_00.x = fract(uu_00), dbg_00.y = fract(vv_00);
+				dbg_01.x = fract(uu_01), dbg_01.y = fract(vv_01);
+				dbg_10.x = fract(uu_10), dbg_10.y = fract(vv_10);
+				dbg_11.x = fract(uu_11), dbg_11.y = fract(vv_11);
 
 				// pattern
 				//dbg_00.x = dbg_00.y = dbg_00.z = pattern_00 / 255.0f;
@@ -818,6 +834,11 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				}
 			}
 #endif
+			// Next loop iteration for x+0 UVs will use x+2 ones from current iteration
+			u_00 = u_02;
+			u_10 = u_12;
+			v_00 = v_02;
+			v_10 = v_12;
 		}
 	}
 }
