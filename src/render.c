@@ -476,7 +476,7 @@ static inline float adjust_float_exp(float x, int i)
 #define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
 #define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
 
-FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const float threshold, const float contrast, const float baseVal, const int x, const int y)
+FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y)
 {
 	// Get the UV coordinates in the current fractal level.
 	// const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
@@ -494,7 +494,6 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 	// according to the contrast, and add the base value.
 	// Note: the terms are slightly reassociated compared to upstream, since
 	// we only need to threshold the result.
-	const float check = (pattern - threshold) * contrast + baseVal;
 
 #if 0
 	uint8_t* debug_output = plat_gfx_get_debug_frame();
@@ -520,7 +519,7 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		debug_output[offset + 3] = 255;
 	}
 #endif
-	return check < 0.0f;
+	return pattern < compare;
 }
 
 void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
@@ -571,7 +570,7 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	// brightness at different input brightness values.
 	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
 	// Note: _SizeVariability fixed to default 0.0, following math simplified
-	const float brightnessSpacingMultiplier = 1.0f / (brightnessCurve / 255.0f * 2.0f);
+	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f);
 
 #define DITHER_SCALE (6.0f)
 #define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
@@ -591,7 +590,9 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 	float baseVal = lerp(128.0f, brightness, saturate(1.05f / (1.0f + contrast))) - 128.0f;
 
 	// The brighter output we want, the lower threshold we need to use
-	const float threshold = 255.0f - brightnessCurve;
+	const uint8_t threshold = 255 - brightnessCurve;
+
+	const int compare_val = (int)(threshold - baseVal / contrast + 0.5f);
 
 	// Rasterize: two rows at a time
 	for (int y = miny; y < maxy; y += 2, c1 += dx12 + dx12, c2 += dx23 + dx23, c3 += dx31 + dx31)
@@ -706,8 +707,10 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 				subLayer_i = DITHER_SLICES - 1;
 			const int subLayer_offset = subLayer_i * DITHER_RES;
 
-			const int byte_idx_0 = (x + 0) / 8;
-			const int byte_idx_1 = (x + 1) / 8;
+			// Note: accumulating pixel outputs/masks into 32 bit words and writing them out
+			// once they are done (or trailing after the loop) seems to be slightly slower on Playdate,
+			// than simply operating on bytes in a naive way.
+			const int byte_idx = x / 8;
 			const int mask_0 = 1 << (7 - ((x + 0) & 7));
 			const int mask_1 = 1 << (7 - ((x + 1) & 7));
 			const bool inside_00 = edges_00 >= 0;
@@ -717,35 +720,35 @@ void draw_triangle_dither3d(uint8_t* bitmap, int rowstride, const float3* p1, co
 
 			if (inside_00)
 			{
-				bool check = do_pixel_sample(u_00, v_00, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x, y);
+				bool check = do_pixel_sample(u_00, v_00, patternScaleLevel_i, subLayer_offset, compare_val, x, y);
 				if (check)
-					output_0[byte_idx_0] &= ~mask_0;
+					output_0[byte_idx] &= ~mask_0;
 				else
-					output_0[byte_idx_0] |= mask_0;
+					output_0[byte_idx] |= mask_0;
 			}
 			if (inside_01)
 			{
-				bool check = do_pixel_sample(u_01, v_01, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x + 1, y);
+				bool check = do_pixel_sample(u_01, v_01, patternScaleLevel_i, subLayer_offset, compare_val, x + 1, y);
 				if (check)
-					output_0[byte_idx_1] &= ~mask_1;
+					output_0[byte_idx] &= ~mask_1;
 				else
-					output_0[byte_idx_1] |= mask_1;
+					output_0[byte_idx] |= mask_1;
 			}
 			if (inside_10)
 			{
-				bool check = do_pixel_sample(u_10, v_10, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x, y + 1);
+				bool check = do_pixel_sample(u_10, v_10, patternScaleLevel_i, subLayer_offset, compare_val, x, y + 1);
 				if (check)
-					output_1[byte_idx_0] &= ~mask_0;
+					output_1[byte_idx] &= ~mask_0;
 				else
-					output_1[byte_idx_0] |= mask_0;
+					output_1[byte_idx] |= mask_0;
 			}
 			if (inside_11)
 			{
-				bool check = do_pixel_sample(u_11, v_11, patternScaleLevel_i, subLayer_offset, threshold, contrast, baseVal, x + 1, y + 1);
+				bool check = do_pixel_sample(u_11, v_11, patternScaleLevel_i, subLayer_offset, compare_val, x + 1, y + 1);
 				if (check)
-					output_1[byte_idx_1] &= ~mask_1;
+					output_1[byte_idx] &= ~mask_1;
 				else
-					output_1[byte_idx_1] |= mask_1;
+					output_1[byte_idx] |= mask_1;
 			}
 
 #if 0

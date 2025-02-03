@@ -65,6 +65,7 @@ enum DrawStyle {
 	// 80ms device, enable -ffast-math
 	// 76ms device, perspective correct UVs at 2x horizontal step
 	// 74ms device, skip rest of row once we get out of triangle
+	// 65ms device, simplify sampled pattern comparison
 	Draw_Dither3D,
 	Draw_Count
 };
