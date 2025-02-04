@@ -138,21 +138,25 @@ void init_pixel_ops()
 
 void draw_dithered_scanline(const uint8_t* values, int y, int bias, uint8_t* framebuffer)
 {
-	uint8_t scanline[SCREEN_STRIDE_BYTES];
-	const uint8_t* noise_row = s_blue_noise + y * SCREEN_X;
-	int px = 0;
-	for (int bx = 0; bx < SCREEN_X / 8; ++bx) {
-		uint8_t pixbyte = 0xFF;
-		for (int ib = 0; ib < 8; ++ib, ++px) {
-			if (values[px] <= noise_row[px] + bias) {
-				pixbyte &= ~(1 << (7 - ib));
-			}
-		}
-		scanline[bx] = pixbyte;
-	}
-
+	const uint32_t* values32 = (const uint32_t*)values;
 	uint8_t* row = framebuffer + y * SCREEN_STRIDE_BYTES;
-	memcpy(row, scanline, sizeof(scanline));
+	const uint32_t* noise_row = (const uint32_t*)(s_blue_noise + y * SCREEN_X);
+	for (int bx = 0; bx < SCREEN_X / 8; ++bx) {
+		uint32_t noise03 = *noise_row++;
+		uint32_t noise47 = *noise_row++;
+		uint32_t values03 = *values32++;
+		uint32_t values47 = *values32++;
+		uint8_t pixbyte = 0;
+		if ((values03 & 0xFF) > (noise03 & 0xFF) + bias) pixbyte |= 128;
+		if ((values03 & 0xFF00) > (noise03 & 0xFF00) + bias) pixbyte |= 64;
+		if ((values03 & 0xFF0000) > (noise03 & 0xFF0000) + bias) pixbyte |= 32;
+		if ((values03 & 0xFF000000) > (noise03 & 0xFF000000) + bias) pixbyte |= 16;
+		if ((values47 & 0xFF) > (noise47 & 0xFF) + bias) pixbyte |= 8;
+		if ((values47 & 0xFF00) > (noise47 & 0xFF00) + bias) pixbyte |= 4;
+		if ((values47 & 0xFF0000) > (noise47 & 0xFF0000) + bias) pixbyte |= 2;
+		if ((values47 & 0xFF000000) > (noise47 & 0xFF000000) + bias) pixbyte |= 1;
+		*row++ = pixbyte;
+	}
 }
 
 void draw_dithered_screen(uint8_t* framebuffer, int bias)
