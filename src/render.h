@@ -45,16 +45,17 @@ void scene_setLight(Scene* scene, float3 light);
 void scene_setCenter(Scene* scene, float x, float y);
 
 enum DrawStyle {
-	// 45fps
+	// 15ms ditherpattern from mini3d
 	Draw_Pattern = 0,
-	// 26fps (32 no wire)
+	// 31ms bluenoise dither
 	Draw_Bluenoise,
 
-	// 26fps simple (as bluenoise, just with halfspace raster)
-	// 17fps (20fps no wire) checker, no perspective correction
-	// 15fps (17fps no wire) checker, with perspective correction
-	// 18fps (20fps no wire) checker, with perspective, no blue noise just b/w
+	// 33ms device initial code from mini3d-plus
+	Draw_Checker_Scanline,
+
+	// 55ms device halfspace
 	Draw_Checker_Halfspace,
+
 	// 605ms device, 5.8ms PC
 	// 316ms device, 4.2ms PC adjust_float_exp
 	// 246ms device, 2.7ms PC bit manip for patternScaleLevel and f

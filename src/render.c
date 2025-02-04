@@ -1,13 +1,15 @@
-// Parts based on mini-3d example from Playdate SDK:
-// Created by Dave Hayden on 10/20/15.
-// Copyright © 2015 Panic, Inc. All rights reserved.
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "render.h"
+#include "mathlib.h"
 #include "platform.h"
 #include "util/pixel_ops.h"
+
+// Parts of the scanline rasterizer are originally based on:
+// - mini3d from Playdate SDK examples. Created by Dave Hayden on 10/20/15. Copyright © 2015 Panic, Inc. All rights reserved.
+// - mini3d-plus, https://github.com/nstbayless/mini3d-plus, MIT license
+
 
 static inline void
 _drawMaskPattern(uint32_t* p, uint32_t mask, uint32_t color)
@@ -77,15 +79,15 @@ drawFragment(uint32_t* row, int x1, int x2, uint32_t color)
 	}
 }
 
-static inline int32_t slope(float x1, float y1, float x2, float y2)
+static inline int32_t slope(float x1, float y1, float x2, float y2, int shift)
 {
 	float dx = x2-x1;
 	float dy = y2-y1;
 	
 	if ( dy < 1 )
-		return (int32_t)(dx * (1<<16));
+		return (int32_t)(dx * (1<< shift));
 	else
-		return (int32_t)(dx / dy * (1<<16));
+		return (int32_t)(dx / dy * (1<<shift));
 }
 
 void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, int thick, const uint8_t pattern[8])
@@ -104,7 +106,7 @@ void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2
 		return;
 	
 	int32_t x = (int32_t)(p1->x * (1<<16));
-	int32_t dx = slope(p1->x, p1->y, p2->x, p2->y);
+	int32_t dx = slope(p1->x, p1->y, p2->x, p2->y, 16);
 	float py = p1->y;
 	
 	if ( y < 0 )
@@ -228,15 +230,15 @@ void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3
 	int32_t x1 = (int32_t)(p1->x * (1<<16));
 	int32_t x2 = x1;
 	
-	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y);
-	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y);
+	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
+	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
 
 	int32_t dx1 = min2(sb, sc);
 	int32_t dx2 = max2(sb, sc);
 	
 	fillRange(bitmap, rowstride, (int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, pattern);
 	
-	int dx = slope(p2->x, p2->y, p3->x, p3->y);
+	int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
 	
 	if ( sb < sc )
 	{
@@ -312,15 +314,15 @@ void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p
 	int32_t x1 = (int32_t)(p1->x * (1 << 16));
 	int32_t x2 = x1;
 
-	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y);
-	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y);
+	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
+	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
 
 	int32_t dx1 = min2(sb, sc);
 	int32_t dx2 = max2(sb, sc);
 
 	fill_range((int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, col);
 
-	int dx = slope(p2->x, p2->y, p3->x, p3->y);
+	int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
 
 	if (sb < sc)
 	{
@@ -333,6 +335,282 @@ void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p
 		fill_range((int)p2->y, endy, &x1, dx1, &x2, dx, col);
 	}
 }
+
+// --------------------------------------------------------------------------
+// Classical scan-line rasterizer, based on Playdate SDK mini3d-plus and Github mini3d-plus
+
+static inline void sortTri_t(const float3** p1, const float3** p2, const float3** p3, float2* t1, float2* t2, float2* t3)
+{
+	float y1 = (*p1)->y, y2 = (*p2)->y, y3 = (*p3)->y;
+
+	if (y1 <= y2 && y1 < y3)
+	{
+		if (y3 < y2) // 1,3,2
+		{
+			const float3* tmp = *p2;
+			float2 tmpt = *t2;
+			*p2 = *p3; *t2 = *t3;
+			*p3 = tmp; *t3 = tmpt;
+		}
+	}
+	else if (y2 < y1 && y2 < y3)
+	{
+		const float3* tmp = *p1;
+		float2 tmpt = *t1;
+		*p1 = *p2; *t1 = *t2;
+
+		if (y3 < y1) // 2,3,1
+		{
+			*p2 = *p3; *t2 = *t3;
+			*p3 = tmp; *t3 = tmpt;
+		}
+		else // 2,1,3
+		{
+			*p2 = tmp; *t2 = tmpt;
+		}
+	}
+	else
+	{
+		const float3* tmp = *p1;
+		float2 tmpt = *t1;
+		*p1 = *p3; *t1 = *t3;
+
+		if (y1 < y2) // 3,1,2
+		{
+			*p3 = *p2; *t3 = *t2;
+			*p2 = tmp; *t2 = tmpt;
+		}
+		else // 3,2,1
+		{
+			*p3 = tmp; *t3 = tmpt;
+		}
+	}
+}
+
+#define UV_SHIFT 21
+#define W_SHIFT 28
+
+static void drawFragment_t(uint32_t* row,
+	int x, int endx,
+	int u, int dudx,
+	int v, int dvdx,
+	uint16_t texw, uint16_t texh,
+	int w, int dwdx)
+{
+	if (endx < 0 || x >= SCREEN_X)
+		return;
+
+	if (endx > SCREEN_X)
+		endx = SCREEN_X;
+
+	if (x < 0)
+	{
+		u += -x * dudx;
+		v += -x * dvdx;
+		w += -x * dwdx;
+		x = 0;
+	}
+
+	uint32_t mask = 0;
+	uint32_t* p = row + x / 32;
+	uint32_t color = 0;
+
+	// allows quicker modulo later.
+	texw--;
+	texh--;
+
+	while (x < endx)
+	{
+		mask |= 0x80000000u >> (x % 32);
+
+		// read texture
+		// scale UV for checker
+		int uu = u * 5;
+		int vv = v * 5;
+
+		// |1 to prevent floating point division error
+		int divisor = (w >> max2(0, W_SHIFT - UV_SHIFT)) | 1;
+		uint16_t ui = (uu / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+		uint16_t vi = (vv / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+		ui &= texw;
+		vi &= texh;
+		
+		//@TODO actual texture logic
+		//uint16_t ti = (vi * texrowbytes) + ui / 8;
+		//uint32_t texpix = (texdata[ti] << (ui % 8)) & 0x80; // either 0x80 or 0.
+		//uint32_t texpix = 0; 
+		// checker
+		bool checker = (ui > texw/2) != (vi > texh/2);
+		uint32_t texpix = checker ? 0 : 0x80;
+
+		color |= (texpix << 24) >> (x % 32);
+
+		++x;
+
+		u += dudx;
+		v += dvdx;
+		w += dwdx;
+
+		if (x % 32 == 0)
+		{
+			_drawMaskPattern(p++, swap(mask), swap(color));
+			mask = 0;
+			color = 0;
+		}
+	}
+
+	_drawMaskPattern(p, swap(mask), swap(color));
+}
+
+static void fillRange_t(uint8_t* bitmap, int rowstride,
+	int y, int endy,
+	int32_t* x1p, int32_t dx1, int32_t* x2p, int32_t dx2,
+	int* up, int dudy, int dudx,
+	int* vp, int dvdy, int dvdx,
+	int* wp, int dwdy, int dwdx)
+{
+	int32_t x1 = *x1p, x2 = *x2p;
+	int u = *up, v = *vp;
+	int w = *wp;
+
+	if (endy < 0) // early-out		
+	{
+		int dy = endy - y;
+		*x1p = x1 + dy * dx1;
+		*x2p = x2 + dy * dx2;
+		*up = u + dy * dudy;
+		*vp = v + dy * dvdy;
+		*wp = w + dy * dwdy;
+		return;
+	}
+
+	if (y < 0)
+	{
+		x1 += (0 - y) * dx1;
+		x2 += (0 - y) * dx2;
+		u += (0 - y) * dudy;
+		v += (0 - y) * dvdy;
+		w += (0 - y) * dwdy;
+		y = 0;
+	}
+
+	int texWidth = 64; //@TODO
+	int texHeight = 64;
+
+	while (y < endy)
+	{
+		drawFragment_t((uint32_t*)&bitmap[y * rowstride], (x1 >> 16), (x2 >> 16) + 1, u, dudx, v, dvdx, texWidth, texHeight, w, dwdx);
+		x1 += dx1;
+		x2 += dx2;
+		u += dudy;
+		v += dvdy;
+		w += dwdy;
+		++y;
+	}
+
+	*x1p = x1;
+	*x2p = x2;
+	*up = u;
+	*vp = v;
+	*wp = w;
+}
+
+static void fillTriangle_t(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
+{
+	float2 t1 = (float2){ uvs[0], uvs[1] };
+	float2 t2 = (float2){ uvs[2], uvs[3] };
+	float2 t3 = (float2){ uvs[4], uvs[5] };
+	sortTri_t(&p1, &p2, &p3, &t1, &t2, &t3);
+
+	int endy = min2(SCREEN_Y, (int)p3->y);
+	if (p1->y > SCREEN_Y || endy < 0)
+		return;
+
+	int det = (int)((p3->x - p1->x) * (p2->y - p1->y) - (p2->x - p1->x) * (p3->y - p1->y));
+	if (det == 0)
+		return; // zero area
+
+	// scale UVs to texture size
+	int width = 64, height = 64; //@TODO
+	t1.x *= width; t1.y *= height;
+	t2.x *= width; t2.y *= height;
+	t3.x *= width; t3.y *= height;
+
+	int32_t x1 = (int)(p1->x * (1 << 16));
+	int32_t x2 = x1;
+
+	const int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
+	const int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
+
+	const int32_t dx1 = min2(sb, sc);
+	const int32_t dx2 = max2(sb, sc);
+
+	const float w1 = 1.0f / p1->z;
+	const float w2 = 1.0f / p2->z;
+	const float w3 = 1.0f / p3->z;
+	const float u1 = t1.x * w1;
+	const float v1 = t1.y * w1;
+	const float u2 = t2.x * w2;
+	const float v2 = t2.y * w2;
+	const float u3 = t3.x * w3;
+	const float v3 = t3.y * w3;
+
+	const float inv_dy31 = 1.0f / (p3->y - p1->y);
+	const float mx = p1->x + (p2->y - p1->y) * (p3->x - p1->x) * inv_dy31;
+	const float mu = u1 + (p2->y - p1->y) * (u3 - u1) * inv_dy31;
+	const float mv = v1 + (p2->y - p1->y) * (v3 - v1) * inv_dy31;
+	const float mw = w1 + (p2->y - p1->y) * (w3 - w1) * inv_dy31;
+
+	int dwdx, dwdy, dudx, dudy, dvdx, dvdy;
+	if (sc < sb)
+	{
+		dudx = slope(mu, mx, u2, p2->x, UV_SHIFT);
+		dudy = slope(u1, p1->y, u3, p3->y, UV_SHIFT);
+		dvdx = slope(mv, mx, v2, p2->x, UV_SHIFT);
+		dvdy = slope(v1, p1->y, v3, p3->y, UV_SHIFT);
+		dwdx = slope(mw, mx, w2, p2->x, W_SHIFT);
+		dwdy = slope(w1, p1->y, w3, p3->y, W_SHIFT);
+	}
+	else
+	{
+		dudx = slope(u2, p2->x, mu, mx, UV_SHIFT);
+		dudy = slope(u1, p1->y, u2, p2->y, UV_SHIFT);
+		dvdx = slope(v2, p2->x, mv, mx, UV_SHIFT);
+		dvdy = slope(v1, p1->y, v2, p2->y, UV_SHIFT);
+		dwdx = slope(w2, p2->x, mw, mx, W_SHIFT);
+		dwdy = slope(w1, p1->y, w2, p2->y, W_SHIFT);
+	}
+
+	int u = (int)(u1 * (1 << UV_SHIFT));
+	int v = (int)(v1 * (1 << UV_SHIFT));
+	int w = (int)(w1 * (1 << W_SHIFT));
+
+	fillRange_t(bitmap, rowstride, (int)p1->y, min2(SCREEN_Y, (int)p2->y),
+		&x1, dx1, &x2, dx2, &u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+
+	const int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
+
+	if (sb < sc)
+	{
+		dudy = slope(u2, p2->y, u3, p3->y, UV_SHIFT);
+		dvdy = slope(v2, p2->y, v3, p3->y, UV_SHIFT);
+		x1 = (int)(p2->x * (1 << 16));
+		u = (int)(u2 * (1 << UV_SHIFT));
+		v = (int)(v2 * (1 << UV_SHIFT));
+		dwdy = slope(w2, p2->y, w3, p3->y, W_SHIFT);
+		w = (int)(w2 * (1 << W_SHIFT));
+		fillRange_t(bitmap, rowstride, (int)p2->y, endy,
+			&x1, dx, &x2, dx2,&u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+	}
+	else
+	{
+		x2 = (int)(p2->x * (1 << 16));
+		fillRange_t(bitmap, rowstride, (int)p2->y, endy,
+			&x1, dx1, &x2, dx, &u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+	}
+}
+
+
 
 // --------------------------------------------------------------------------
 // Half-space / barycentric triangle rasterizer
@@ -423,8 +701,8 @@ FORCE_INLINE bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p
 	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
 	if (det == 0)
 		return false; // zero area
-	if (det > 0)
-		return false; // wrong winding
+	//if (det > 0)
+	//	return false; // wrong winding
 
 	// bounding box / clipping
 	hs->minx = max2(fixed_ceil(min3(x1, x2, x3)), 0);
@@ -1050,6 +1328,19 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p1x, p1y, p2x, p2y, col);
 			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p2x, p2y, p3x, p3y, col);
 			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
+		}
+	}
+	else if (style == Draw_Checker_Scanline)
+	{
+		// draw strictly black/white checker based on UV coordinates
+		fillTriangle_t(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
+
+		if (wire)
+		{
+			const uint8_t* pattern = (const uint8_t*)&patterns[0];
+			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 		}
 	}
 	else if (style == Draw_Checker_Halfspace)

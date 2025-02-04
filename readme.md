@@ -42,4 +42,5 @@ demo I made in 2024. As such, it compiles on Playdate, and on PC as well (via So
 Everything I wrote myself is Unlicense / Public Domain. However some 3rd party libraries are used too:
 - No direct code used, but the whole [**Dither3D technique**](https://github.com/runevision/Dither3D) is MPL-2.0 license.
 - Parts are based on Playdate SDK examples. Created by Dave Hayden on 10/20/15, Copyright © 2015 Panic, Inc.
+- Parts are based on [**mini3d-plus**](https://github.com/nstbayless/mini3d-plus), MIT license
 - (only on PC): [**Sokol**](https://github.com/floooh/sokol): sokol_app, sokol_gfx, sokol_time. zlib/libpng license.

@@ -136,6 +136,12 @@ static inline float RandomFloat01(uint32_t* state)
 	return (XorShift32(state) & 0xFFFFFF) / 16777216.0f;
 }
 
+typedef struct float2
+{
+	float x;
+	float y;
+} float2;
+
 typedef struct float3
 {
 	float x;
