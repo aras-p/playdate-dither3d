@@ -46,11 +46,13 @@ void scene_setCenter(Scene* scene, float x, float y);
 
 enum DrawStyle {
 	// 15ms ditherpattern from mini3d
-	Draw_Pattern = 0,
-	// 31ms bluenoise dither
+	// 19ms generic scanline rasterizer, that fills scanlines with dither pattern (but still has per-row overhead of UVs etc.)
+	Draw_Pattern,
+	// 31ms bluenoise dither, rasterizer loop from mini3
+	// 33ms bluenoise dither, generic scanline rasterizer loop (more per-row overhead)
 	Draw_Bluenoise,
 
-	// 33ms device initial code from mini3d-plus
+	// 35ms device, 0.46mc PC
 	Draw_Checker_Scanline,
 
 	// 55ms device halfspace

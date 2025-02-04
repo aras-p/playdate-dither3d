@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include "render.h"
 #include "mathlib.h"
 #include "platform.h"
@@ -139,203 +140,6 @@ void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2
 	}
 }
 
-static void fillRange(uint8_t* bitmap, int rowstride, int y, int endy, int32_t* x1p, int32_t dx1, int32_t* x2p, int32_t dx2, const uint8_t pattern[8])
-{
-	int32_t x1 = *x1p, x2 = *x2p;
-	
-	if ( endy < 0 )
-	{
-		int dy = endy - y;
-		*x1p = x1 + dy * dx1;
-		*x2p = x2 + dy * dx2;
-		return;
-	}
-	
-	if ( y < 0 )
-	{
-		x1 += -y * dx1;
-		x2 += -y * dx2;
-		y = 0;
-	}
-	
-	while ( y < endy )
-	{
-		uint8_t p = pattern[y%8];
-		uint32_t color = (p<<24) | (p<<16) | (p<<8) | p;
-		
-		drawFragment((uint32_t*)&bitmap[y*rowstride], (x1>>16), (x2>>16)+1, color);
-		
-		x1 += dx1;
-		x2 += dx2;
-		++y;
-	}
-	
-	*x1p = x1;
-	*x2p = x2;
-}
-
-static inline void sortTri(const float3** p1, const float3** p2, const float3** p3)
-{
-	float y1 = (*p1)->y, y2 = (*p2)->y, y3 = (*p3)->y;
-	
-	if ( y1 <= y2 && y1 < y3 )
-	{
-		if ( y3 < y2 ) // 1,3,2
-		{
-			const float3* tmp = *p2;
-			*p2 = *p3;
-			*p3 = tmp;
-		}
-	}
-	else if ( y2 < y1 && y2 < y3 )
-	{
-		const float3* tmp = *p1;
-		*p1 = *p2;
-
-		if ( y3 < y1 ) // 2,3,1
-		{
-			*p2 = *p3;
-			*p3 = tmp;
-		}
-		else // 2,1,3
-			*p2 = tmp;
-	}
-	else
-	{
-		const float3* tmp = *p1;
-		*p1 = *p3;
-		
-		if ( y1 < y2 ) // 3,1,2
-		{
-			*p3 = *p2;
-			*p2 = tmp;
-		}
-		else // 3,2,1
-			*p3 = tmp;
-	}
-
-}
-
-void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const uint8_t pattern[8])
-{
-	// sort by y coord
-	
-	sortTri(&p1, &p2, &p3);
-	
-	int endy = min2(SCREEN_Y, (int)p3->y);
-	
-	if ( p1->y > SCREEN_Y || endy < 0 )
-		return;
-
-	int32_t x1 = (int32_t)(p1->x * (1<<16));
-	int32_t x2 = x1;
-	
-	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
-	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
-
-	int32_t dx1 = min2(sb, sc);
-	int32_t dx2 = max2(sb, sc);
-	
-	fillRange(bitmap, rowstride, (int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, pattern);
-	
-	int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
-	
-	if ( sb < sc )
-	{
-		x1 = (int32_t)(p2->x * (1<<16));
-		fillRange(bitmap, rowstride, (int)p2->y, endy, &x1, dx, &x2, dx2, pattern);
-	}
-	else
-	{
-		x2 = (int32_t)(p2->x * (1<<16));
-		fillRange(bitmap, rowstride, (int)p2->y, endy, &x1, dx1, &x2, dx, pattern);
-	}
-}
-
-static void draw_fragment(uint8_t* row, int x1, int x2, const uint8_t color)
-{
-	if (x2 < 0 || x1 >= SCREEN_X)
-		return;
-
-	if (x1 < 0)
-		x1 = 0;
-
-	if (x2 > SCREEN_X)
-		x2 = SCREEN_X;
-
-	if (x1 > x2)
-		return;
-
-	memset(row + x1, color, x2 - x1);
-}
-
-static void fill_range(int y, int endy, int32_t* x1p, int32_t dx1, int32_t* x2p, int32_t dx2, const uint8_t color)
-{
-	int32_t x1 = *x1p, x2 = *x2p;
-
-	if (endy < 0)
-	{
-		int dy = endy - y;
-		*x1p = x1 + dy * dx1;
-		*x2p = x2 + dy * dx2;
-		return;
-	}
-
-	if (y < 0)
-	{
-		x1 += -y * dx1;
-		x2 += -y * dx2;
-		y = 0;
-	}
-
-	while (y < endy)
-	{
-		draw_fragment(g_screen_buffer + y * SCREEN_X, (x1 >> 16), (x2 >> 16) + 1, color);
-
-		x1 += dx1;
-		x2 += dx2;
-		++y;
-	}
-
-	*x1p = x1;
-	*x2p = x2;
-}
-
-void draw_triangle_scanlines(const float3* p1, const float3* p2, const float3* p3, const uint8_t col)
-{
-	// sort by y coord
-	sortTri(&p1, &p2, &p3);
-
-	int endy = min2(SCREEN_Y, (int)p3->y);
-
-	if (p1->y > SCREEN_Y || endy < 0)
-		return;
-
-	int32_t x1 = (int32_t)(p1->x * (1 << 16));
-	int32_t x2 = x1;
-
-	int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
-	int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
-
-	int32_t dx1 = min2(sb, sc);
-	int32_t dx2 = max2(sb, sc);
-
-	fill_range((int)p1->y, min2(SCREEN_Y, (int)p2->y), &x1, dx1, &x2, dx2, col);
-
-	int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
-
-	if (sb < sc)
-	{
-		x1 = (int32_t)(p2->x * (1 << 16));
-		fill_range((int)p2->y, endy, &x1, dx, &x2, dx2, col);
-	}
-	else
-	{
-		x2 = (int32_t)(p2->x * (1 << 16));
-		fill_range((int)p2->y, endy, &x1, dx1, &x2, dx, col);
-	}
-}
-
 // --------------------------------------------------------------------------
 // Classical scan-line rasterizer, based on Playdate SDK mini3d-plus and Github mini3d-plus
 
@@ -390,223 +194,338 @@ static inline void sortTri_t(const float3** p1, const float3** p2, const float3*
 #define UV_SHIFT 21
 #define W_SHIFT 28
 
-static void drawFragment_t(uint32_t* row,
-	int x, int endx,
-	int u, int dudx,
-	int v, int dvdx,
-	uint16_t texw, uint16_t texh,
-	int w, int dwdx)
+typedef struct raster_scanline_t
 {
-	if (endx < 0 || x >= SCREEN_X)
-		return;
+	// These are used in the scanline inner loop
+	int x, endx; // in pixels: current position, end position of the scanline
+	int u, v, w; // current U, V, W (1/Z) in fixed point
+	int dudx, dvdx, dwdx; // u, v, w steps in x direction
 
-	if (endx > SCREEN_X)
-		endx = SCREEN_X;
+	// These are used in the vertical loop
+	int y, y2, y3; // in pixels: current position; middle/bottom rows
+	bool part_12; // we are processing y1-y2 part currently
+	int x1row, x2row, urow, vrow, wrow;
 
-	if (x < 0)
-	{
-		u += -x * dudx;
-		v += -x * dvdx;
-		w += -x * dwdx;
-		x = 0;
-	}
+	int dx1, dx2, dudy, dvdy, dwdy;
 
-	uint32_t mask = 0;
-	uint32_t* p = row + x / 32;
-	uint32_t color = 0;
+	int sb, sc;
 
-	// allows quicker modulo later.
-	texw--;
-	texh--;
+	float w1, w2, w3;
+	float u1, v1, u2, v2, u3, v3;
 
-	while (x < endx)
-	{
-		mask |= 0x80000000u >> (x % 32);
+	// Triangle vertices
+	const float3* p1;
+	const float3* p2;
+	const float3* p3;
+	// Triangle UVs
+	float2 t1, t2, t3;
+} raster_scanline_t;
 
-		// read texture
-		// scale UV for checker
-		int uu = u * 5;
-		int vv = v * 5;
-
-		// |1 to prevent floating point division error
-		int divisor = (w >> max2(0, W_SHIFT - UV_SHIFT)) | 1;
-		uint16_t ui = (uu / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
-		uint16_t vi = (vv / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
-		ui &= texw;
-		vi &= texh;
-		
-		//@TODO actual texture logic
-		//uint16_t ti = (vi * texrowbytes) + ui / 8;
-		//uint32_t texpix = (texdata[ti] << (ui % 8)) & 0x80; // either 0x80 or 0.
-		//uint32_t texpix = 0; 
-		// checker
-		bool checker = (ui > texw/2) != (vi > texh/2);
-		uint32_t texpix = checker ? 0 : 0x80;
-
-		color |= (texpix << 24) >> (x % 32);
-
-		++x;
-
-		u += dudx;
-		v += dvdx;
-		w += dwdx;
-
-		if (x % 32 == 0)
-		{
-			_drawMaskPattern(p++, swap(mask), swap(color));
-			mask = 0;
-			color = 0;
-		}
-	}
-
-	_drawMaskPattern(p, swap(mask), swap(color));
-}
-
-static void fillRange_t(uint8_t* bitmap, int rowstride,
-	int y, int endy,
-	int32_t* x1p, int32_t dx1, int32_t* x2p, int32_t dx2,
-	int* up, int dudy, int dudx,
-	int* vp, int dvdy, int dvdx,
-	int* wp, int dwdy, int dwdx)
+FORCE_INLINE bool raster_scanline_begin(raster_scanline_t* hs, const float3* pos1, const float3* pos2, const float3* pos3, const float uvs[6], float texDimPowerOfTwo)
 {
-	int32_t x1 = *x1p, x2 = *x2p;
-	int u = *up, v = *vp;
-	int w = *wp;
+	hs->p1 = pos1, hs->p2 = pos2, hs->p3 = pos3;
+	hs->t1 = (float2){ uvs[0], uvs[1] };
+	hs->t2 = (float2){ uvs[2], uvs[3] };
+	hs->t3 = (float2){ uvs[4], uvs[5] };
+	// Order vertices so that p1 is at top, p2 in the middle, p3 at the bottom
+	sortTri_t(&hs->p1, &hs->p2, &hs->p3, &hs->t1, &hs->t2, &hs->t3);
 
-	if (endy < 0) // early-out		
-	{
-		int dy = endy - y;
-		*x1p = x1 + dy * dx1;
-		*x2p = x2 + dy * dx2;
-		*up = u + dy * dudy;
-		*vp = v + dy * dvdy;
-		*wp = w + dy * dwdy;
-		return;
-	}
+	const int y1 = (int)hs->p1->y;
+	hs->y2 = (int)hs->p2->y;
+	hs->y3 = (int)hs->p3->y;
+	if (y1 >= SCREEN_Y || hs->y3 < 0)
+		return false; // triangle outside of Y range
 
-	if (y < 0)
-	{
-		x1 += (0 - y) * dx1;
-		x2 += (0 - y) * dx2;
-		u += (0 - y) * dudy;
-		v += (0 - y) * dvdy;
-		w += (0 - y) * dwdy;
-		y = 0;
-	}
-
-	int texWidth = 64; //@TODO
-	int texHeight = 64;
-
-	while (y < endy)
-	{
-		drawFragment_t((uint32_t*)&bitmap[y * rowstride], (x1 >> 16), (x2 >> 16) + 1, u, dudx, v, dvdx, texWidth, texHeight, w, dwdx);
-		x1 += dx1;
-		x2 += dx2;
-		u += dudy;
-		v += dvdy;
-		w += dwdy;
-		++y;
-	}
-
-	*x1p = x1;
-	*x2p = x2;
-	*up = u;
-	*vp = v;
-	*wp = w;
-}
-
-static void fillTriangle_t(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
-{
-	float2 t1 = (float2){ uvs[0], uvs[1] };
-	float2 t2 = (float2){ uvs[2], uvs[3] };
-	float2 t3 = (float2){ uvs[4], uvs[5] };
-	sortTri_t(&p1, &p2, &p3, &t1, &t2, &t3);
-
-	int endy = min2(SCREEN_Y, (int)p3->y);
-	if (p1->y > SCREEN_Y || endy < 0)
-		return;
-
-	int det = (int)((p3->x - p1->x) * (p2->y - p1->y) - (p2->x - p1->x) * (p3->y - p1->y));
+	int det = (int)((pos3->x - pos1->x) * (pos2->y - pos1->y) - (pos2->x - pos1->x) * (pos3->y - pos1->y));
 	if (det == 0)
-		return; // zero area
+		return false; // zero area
+
+	hs->y2 = min2(SCREEN_Y, hs->y2);
+	hs->y3 = min2(SCREEN_Y, hs->y3);
+	hs->y = y1;
+	hs->part_12 = true;
 
 	// scale UVs to texture size
-	int width = 64, height = 64; //@TODO
-	t1.x *= width; t1.y *= height;
-	t2.x *= width; t2.y *= height;
-	t3.x *= width; t3.y *= height;
+	hs->t1.x *= texDimPowerOfTwo; hs->t1.y *= texDimPowerOfTwo;
+	hs->t2.x *= texDimPowerOfTwo; hs->t2.y *= texDimPowerOfTwo;
+	hs->t3.x *= texDimPowerOfTwo; hs->t3.y *= texDimPowerOfTwo;
 
-	int32_t x1 = (int)(p1->x * (1 << 16));
-	int32_t x2 = x1;
+	hs->x1row = (int)(hs->p1->x * (1 << 16));
+	hs->x2row = hs->x1row;
 
-	const int32_t sb = slope(p1->x, p1->y, p2->x, p2->y, 16);
-	const int32_t sc = slope(p1->x, p1->y, p3->x, p3->y, 16);
+	hs->sb = slope(hs->p1->x, hs->p1->y, hs->p2->x, hs->p2->y, 16);
+	hs->sc = slope(hs->p1->x, hs->p1->y, hs->p3->x, hs->p3->y, 16);
 
-	const int32_t dx1 = min2(sb, sc);
-	const int32_t dx2 = max2(sb, sc);
+	hs->dx1 = min2(hs->sb, hs->sc);
+	hs->dx2 = max2(hs->sb, hs->sc);
 
-	const float w1 = 1.0f / p1->z;
-	const float w2 = 1.0f / p2->z;
-	const float w3 = 1.0f / p3->z;
-	const float u1 = t1.x * w1;
-	const float v1 = t1.y * w1;
-	const float u2 = t2.x * w2;
-	const float v2 = t2.y * w2;
-	const float u3 = t3.x * w3;
-	const float v3 = t3.y * w3;
+	hs->w1 = 1.0f / hs->p1->z;
+	hs->w2 = 1.0f / hs->p2->z;
+	hs->w3 = 1.0f / hs->p3->z;
+	hs->u1 = hs->t1.x * hs->w1;
+	hs->v1 = hs->t1.y * hs->w1;
+	hs->u2 = hs->t2.x * hs->w2;
+	hs->v2 = hs->t2.y * hs->w2;
+	hs->u3 = hs->t3.x * hs->w3;
+	hs->v3 = hs->t3.y * hs->w3;
 
-	const float inv_dy31 = 1.0f / (p3->y - p1->y);
-	const float mx = p1->x + (p2->y - p1->y) * (p3->x - p1->x) * inv_dy31;
-	const float mu = u1 + (p2->y - p1->y) * (u3 - u1) * inv_dy31;
-	const float mv = v1 + (p2->y - p1->y) * (v3 - v1) * inv_dy31;
-	const float mw = w1 + (p2->y - p1->y) * (w3 - w1) * inv_dy31;
+	const float inv_dy31 = 1.0f / (hs->p3->y - hs->p1->y);
+	const float dy21 = hs->p2->y - hs->p1->y;
+	const float mx = hs->p1->x + dy21 * (hs->p3->x - hs->p1->x) * inv_dy31;
+	const float mu = hs->u1 + dy21 * (hs->u3 - hs->u1) * inv_dy31;
+	const float mv = hs->v1 + dy21 * (hs->v3 - hs->v1) * inv_dy31;
+	const float mw = hs->w1 + dy21 * (hs->w3 - hs->w1) * inv_dy31;
 
-	int dwdx, dwdy, dudx, dudy, dvdx, dvdy;
-	if (sc < sb)
+	if (hs->sc < hs->sb)
 	{
-		dudx = slope(mu, mx, u2, p2->x, UV_SHIFT);
-		dudy = slope(u1, p1->y, u3, p3->y, UV_SHIFT);
-		dvdx = slope(mv, mx, v2, p2->x, UV_SHIFT);
-		dvdy = slope(v1, p1->y, v3, p3->y, UV_SHIFT);
-		dwdx = slope(mw, mx, w2, p2->x, W_SHIFT);
-		dwdy = slope(w1, p1->y, w3, p3->y, W_SHIFT);
+		hs->dudx = slope(mu, mx, hs->u2, hs->p2->x, UV_SHIFT);
+		hs->dudy = slope(hs->u1, hs->p1->y, hs->u3, hs->p3->y, UV_SHIFT);
+		hs->dvdx = slope(mv, mx, hs->v2, hs->p2->x, UV_SHIFT);
+		hs->dvdy = slope(hs->v1, hs->p1->y, hs->v3, hs->p3->y, UV_SHIFT);
+		hs->dwdx = slope(mw, mx, hs->w2, hs->p2->x, W_SHIFT);
+		hs->dwdy = slope(hs->w1, hs->p1->y, hs->w3, hs->p3->y, W_SHIFT);
 	}
 	else
 	{
-		dudx = slope(u2, p2->x, mu, mx, UV_SHIFT);
-		dudy = slope(u1, p1->y, u2, p2->y, UV_SHIFT);
-		dvdx = slope(v2, p2->x, mv, mx, UV_SHIFT);
-		dvdy = slope(v1, p1->y, v2, p2->y, UV_SHIFT);
-		dwdx = slope(w2, p2->x, mw, mx, W_SHIFT);
-		dwdy = slope(w1, p1->y, w2, p2->y, W_SHIFT);
+		hs->dudx = slope(hs->u2, hs->p2->x, mu, mx, UV_SHIFT);
+		hs->dudy = slope(hs->u1, hs->p1->y, hs->u2, hs->p2->y, UV_SHIFT);
+		hs->dvdx = slope(hs->v2, hs->p2->x, mv, mx, UV_SHIFT);
+		hs->dvdy = slope(hs->v1, hs->p1->y, hs->v2, hs->p2->y, UV_SHIFT);
+		hs->dwdx = slope(hs->w2, hs->p2->x, mw, mx, W_SHIFT);
+		hs->dwdy = slope(hs->w1, hs->p1->y, hs->w2, hs->p2->y, W_SHIFT);
 	}
 
-	int u = (int)(u1 * (1 << UV_SHIFT));
-	int v = (int)(v1 * (1 << UV_SHIFT));
-	int w = (int)(w1 * (1 << W_SHIFT));
+	hs->urow = (int)(hs->u1 * (1 << UV_SHIFT));
+	hs->vrow = (int)(hs->v1 * (1 << UV_SHIFT));
+	hs->wrow = (int)(hs->w1 * (1 << W_SHIFT));
+	return true;
+}
 
-	fillRange_t(bitmap, rowstride, (int)p1->y, min2(SCREEN_Y, (int)p2->y),
-		&x1, dx1, &x2, dx2, &u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+static void switch_to_part_23(raster_scanline_t *hs)
+{
+	assert(hs->part_12);
+	hs->part_12 = false;
 
-	const int dx = slope(p2->x, p2->y, p3->x, p3->y, 16);
-
-	if (sb < sc)
+	int new_dx = slope(hs->p2->x, hs->p2->y, hs->p3->x, hs->p3->y, 16);
+	if (hs->sb < hs->sc)
 	{
-		dudy = slope(u2, p2->y, u3, p3->y, UV_SHIFT);
-		dvdy = slope(v2, p2->y, v3, p3->y, UV_SHIFT);
-		x1 = (int)(p2->x * (1 << 16));
-		u = (int)(u2 * (1 << UV_SHIFT));
-		v = (int)(v2 * (1 << UV_SHIFT));
-		dwdy = slope(w2, p2->y, w3, p3->y, W_SHIFT);
-		w = (int)(w2 * (1 << W_SHIFT));
-		fillRange_t(bitmap, rowstride, (int)p2->y, endy,
-			&x1, dx, &x2, dx2,&u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+		hs->dx1 = new_dx;
+		hs->dudy = slope(hs->u2, hs->p2->y, hs->u3, hs->p3->y, UV_SHIFT);
+		hs->dvdy = slope(hs->v2, hs->p2->y, hs->v3, hs->p3->y, UV_SHIFT);
+		hs->x1row = (int)(hs->p2->x * (1 << 16));
+		hs->urow = (int)(hs->u2 * (1 << UV_SHIFT));
+		hs->vrow = (int)(hs->v2 * (1 << UV_SHIFT));
+		hs->dwdy = slope(hs->w2, hs->p2->y, hs->w3, hs->p3->y, W_SHIFT);
+		hs->wrow = (int)(hs->w2 * (1 << W_SHIFT));
 	}
 	else
 	{
-		x2 = (int)(p2->x * (1 << 16));
-		fillRange_t(bitmap, rowstride, (int)p2->y, endy,
-			&x1, dx1, &x2, dx, &u, dudy, dudx, &v, dvdy, dvdx, &w, dwdy, dwdx);
+		hs->x2row = (int)(hs->p2->x * (1 << 16));
+		hs->dx2 = new_dx;
+	}
+}
+
+FORCE_INLINE bool raster_scanline_y_continue(raster_scanline_t* hs)
+{
+	if (hs->part_12 && hs->y == hs->y2)
+	{
+		switch_to_part_23(hs);
+	}
+	const int cur_y_end = hs->part_12 ? hs->y2 : hs->y3;
+	if (cur_y_end < 0)
+	{
+		assert(hs->part_12);
+		int dy = cur_y_end - hs->y;
+		hs->x1row += dy * hs->dx1;
+		hs->x2row += dy * hs->dx2;
+		hs->urow += dy * hs->dudy;
+		hs->vrow += dy * hs->dvdy;
+		hs->wrow += dy * hs->dwdy;
+		hs->y = cur_y_end;
+		switch_to_part_23(hs);
+	}
+	if (hs->y < 0)
+	{
+		hs->x1row -= hs->y * hs->dx1;
+		hs->x2row -= hs->y * hs->dx2;
+		hs->urow -= hs->y * hs->dudy;
+		hs->vrow -= hs->y * hs->dvdy;
+		hs->wrow -= hs->y * hs->dwdy;
+		hs->y = 0;
+	}
+
+	return hs->y < hs->y3;
+}
+
+FORCE_INLINE void raster_scanline_y_step(raster_scanline_t* hs)
+{
+	hs->x1row += hs->dx1;
+	hs->x2row += hs->dx2;
+	hs->urow += hs->dudy;
+	hs->vrow += hs->dvdy;
+	hs->wrow += hs->dwdy;
+	hs->y++;
+}
+
+FORCE_INLINE void raster_scanline_x_begin(raster_scanline_t* hs)
+{
+	const int x1 = hs->x1row >> 16;
+	hs->endx = (hs->x2row >> 16) + 1;
+	hs->x = x1;
+	hs->u = hs->urow;
+	hs->v = hs->vrow;
+	hs->w = hs->wrow;
+
+	hs->endx = min2(hs->endx, SCREEN_X);
+
+	if (hs->x < 0)
+	{
+		hs->u -= hs->x * hs->dudx;
+		hs->v -= hs->x * hs->dvdx;
+		hs->w -= hs->x * hs->dwdx;
+		hs->x = 0;
+	}
+}
+
+FORCE_INLINE bool raster_scanline_x_continue(raster_scanline_t* hs)
+{
+	return hs->x < hs->endx;
+}
+
+FORCE_INLINE void raster_scanline_x_step(raster_scanline_t* hs)
+{
+	hs->u += hs->dudx;
+	hs->v += hs->dvdx;
+	hs->w += hs->dwdx;
+	hs->x++;
+}
+
+// --------------------------------------------------------------------------
+
+static void draw_triangle_pattern_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t *pattern)
+{
+	raster_scanline_t hs;
+	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 64.0f))
+		return;
+
+	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
+	{
+		uint8_t* row = bitmap + hs.y * rowstride;
+		raster_scanline_x_begin(&hs);
+		if (!raster_scanline_x_continue(&hs))
+			continue;
+
+		uint8_t pat = pattern[hs.y % 8];
+		uint32_t color = (pat << 24) | (pat << 16) | (pat << 8) | pat;
+
+		// write out pixels 32 at a time
+		int startbit = hs.x % 32;
+		uint32_t startmask = swap((1 << (32 - startbit)) - 1);
+		int endbit = hs.endx % 32;
+		uint32_t endmask = swap(((1 << endbit) - 1) << (32 - endbit));
+
+		int col = hs.x / 32;
+		uint32_t* p = (uint32_t*)row + col;
+
+		if (col == hs.endx / 32)
+		{
+			uint32_t mask = 0;
+			if (startbit > 0 && endbit > 0)
+				mask = startmask & endmask;
+			else if (startbit > 0)
+				mask = startmask;
+			else if (endbit > 0)
+				mask = endmask;
+			_drawMaskPattern(p, mask, color);
+		}
+		else
+		{
+			int x = hs.x;
+			if (startbit > 0)
+			{
+				_drawMaskPattern(p++, startmask, color);
+				x += (32 - startbit);
+			}
+			while (x + 32 <= hs.endx)
+			{
+				_drawMaskPattern(p++, 0xffffffff, color);
+				x += 32;
+			}
+			if (endbit > 0)
+			{
+				_drawMaskPattern(p, endmask, color);
+			}
+		}
+	}
+}
+
+static void draw_triangle_bluenoise_scanline(const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t color)
+{
+	raster_scanline_t hs;
+	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 64.0f))
+		return;
+
+	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
+	{
+		raster_scanline_x_begin(&hs);
+		if (!raster_scanline_x_continue(&hs))
+			continue;
+
+		uint8_t* row = g_screen_buffer + hs.y * SCREEN_X;
+		memset(row + hs.x, color, hs.endx - hs.x);
+	}
+}
+
+static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
+{
+	raster_scanline_t hs;
+	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 64.0f))
+		return;
+
+	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
+	{
+		uint8_t* row = bitmap + hs.y * rowstride;
+		raster_scanline_x_begin(&hs);
+
+		// write out pixels 32 at a time
+		uint32_t mask = 0;
+		uint32_t* p = (uint32_t*)row + hs.x / 32; // 1.0%
+		uint32_t color = 0;
+
+		while(raster_scanline_x_continue(&hs)) // 7.1%
+		{
+			mask |= 0x80000000u >> (hs.x & 31); // 8%
+
+			int uu = hs.u * 5; // 0.4%
+			int vv = hs.v * 5;
+			// |1 to prevent floating point division error
+			int divisor = (hs.w >> max2(0, W_SHIFT - UV_SHIFT)) | 1;
+			uint16_t ui = (uu / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+			uint16_t vi = (vv / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+			ui &= 63;
+			vi &= 63;
+			bool checker = (ui > 31) != (vi > 31);
+
+			uint32_t texpix = checker ? 0 : 0x80;
+			color |= (texpix << 24) >> (hs.x % 32);
+
+			//int bit_mask = 1 << (7 - (hs.x & 7));
+			//if (checker)
+			//	row[hs.x / 8] &= ~bit_mask;
+			//else
+			//	row[hs.x / 8] |= bit_mask;
+
+			raster_scanline_x_step(&hs);
+
+			if (hs.x % 32 == 0) // 5.6%
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
+		}
+
+		_drawMaskPattern(p, swap(mask), swap(color));
 	}
 }
 
@@ -1295,7 +1214,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		// fill
 		{
 			const uint8_t* pattern = (const uint8_t*)&patterns[vi];
-			fillTriangle(bitmap, rowstride, p1, p2, p3, pattern);
+			draw_triangle_pattern_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, pattern);
 		}
 		// wire
 		if (wire)
@@ -1316,7 +1235,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle_scanlines(p1, p2, p3, col);
+		draw_triangle_bluenoise_scanline(p1, p2, p3, mesh->uvs + tri_index * 6, col);
 
 		if (wire)
 		{
@@ -1333,7 +1252,7 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 	else if (style == Draw_Checker_Scanline)
 	{
 		// draw strictly black/white checker based on UV coordinates
-		fillTriangle_t(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
+		draw_triangle_checker_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
 
 		if (wire)
 		{

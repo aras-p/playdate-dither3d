@@ -358,7 +358,7 @@ void plat_gfx_draw_stats(int par1, int par2)
 
 	// draw text
 	char buf[200];
-	snprintf(buf, sizeof(buf), "%.1fms (%.1f FPS) a:%i b:%i", s_disp_delta_time * 1000.0f, 1.0f / (s_disp_delta_time + 1.0e-20f), par1, par2);
+	snprintf(buf, sizeof(buf), "%.2fms (%.1f FPS) a:%i b:%i", s_disp_delta_time * 1000.0f, 1.0f / (s_disp_delta_time + 1.0e-20f), par1, par2);
 	draw_text(buf, 1, 1);
 }
 
