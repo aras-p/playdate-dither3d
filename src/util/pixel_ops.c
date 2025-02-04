@@ -24,6 +24,11 @@ void clear_screen_buffers()
 	memset(g_screen_buffer_2x2sml, 0xFF, sizeof(g_screen_buffer_2x2sml));
 }
 
+const uint8_t* get_blue_noise_buffer()
+{
+	return s_blue_noise;
+}
+
 
 // 2x2 pixel block ordered dither matrix.
 // 0 3

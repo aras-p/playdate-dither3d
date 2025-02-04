@@ -107,10 +107,7 @@ void fx_meshes_update()
 	qsort(s_object_order, SCENE_OBJECT_COUNT, sizeof(s_object_order[0]), CompareZ);
 
 	// draw
-	if (s_draw_style == Draw_Bluenoise)
-		clear_screen_buffers();
-	else
-		plat_gfx_clear(kSolidColorWhite);
+	plat_gfx_clear(kSolidColorWhite);
 
 	if (!s_draw_test)
 	{
@@ -128,9 +125,6 @@ void fx_meshes_update()
 		test_tr.m[0][0] = test_tr.m[1][1] = test_tr.m[2][2] = 4.0f;
 		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &test_tr, s_draw_style, s_draw_wire);
 	}
-
-	if (s_draw_style == Draw_Bluenoise)
-		draw_dithered_screen(G.framebuffer, 0);
 
 	G.statval1 = s_draw_style;
 	G.statval2 = s_draw_wire ? 1 : 0;

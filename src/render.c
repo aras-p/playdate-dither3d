@@ -459,11 +459,13 @@ static void draw_triangle_pattern_scanline(uint8_t* bitmap, int rowstride, const
 	}
 }
 
-static void draw_triangle_bluenoise_scanline(const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t color)
+static void draw_triangle_bluenoise_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t tri_color)
 {
 	raster_scanline_t hs;
 	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 64.0f))
 		return;
+
+	const uint8_t* blue_noise_buffer = get_blue_noise_buffer();
 
 	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
 	{
@@ -471,8 +473,30 @@ static void draw_triangle_bluenoise_scanline(const float3* p1, const float3* p2,
 		if (!raster_scanline_x_continue(&hs))
 			continue;
 
-		uint8_t* row = g_screen_buffer + hs.y * SCREEN_X;
-		memset(row + hs.x, color, hs.endx - hs.x);
+		const uint8_t* noise_row = blue_noise_buffer + hs.y * SCREEN_X;
+		uint8_t* row = bitmap + hs.y * rowstride;
+
+		int x = hs.x, endx = hs.endx;
+
+		// write out pixels 32 at a time
+		uint32_t mask = 0;
+		uint32_t* p = (uint32_t*)row + hs.x / 32;
+		uint32_t color = 0;
+
+		while (x < endx)
+		{
+			mask |= 0x80000000u >> (x & 31);
+			uint32_t pix = tri_color > noise_row[x] ? 0x80000000 : 0;
+			color |= pix >> (x & 31);
+			x++;
+			if (x % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
+		}
+		_drawMaskPattern(p, swap(mask), swap(color));
 	}
 }
 
@@ -1235,18 +1259,14 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		if (col < 0) col = 0;
 		if (col > 255) col = 255;
 
-		draw_triangle_bluenoise_scanline(p1, p2, p3, mesh->uvs + tri_index * 6, col);
+		draw_triangle_bluenoise_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col);
 
 		if (wire)
 		{
-			col -= 128;
-			if (col < 0) col = 0;
-			int p1x = (int)p1->x, p1y = (int)p1->y;
-			int p2x = (int)p2->x, p2y = (int)p2->y;
-			int p3x = (int)p3->x, p3y = (int)p3->y;
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p1x, p1y, p2x, p2y, col);
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p2x, p2y, p3x, p3y, col);
-			draw_line(g_screen_buffer, SCREEN_X, SCREEN_Y, p3x, p3y, p1x, p1y, col);
+			const uint8_t* pattern = (const uint8_t*)&patterns[0];
+			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 		}
 	}
 	else if (style == Draw_Checker_Scanline)

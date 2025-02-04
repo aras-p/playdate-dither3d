@@ -12,6 +12,7 @@ extern uint8_t* s_dither4x4_g;
 
 void init_pixel_ops();
 void clear_screen_buffers();
+const uint8_t* get_blue_noise_buffer();
 
 static inline void put_pixel_black(uint8_t* row, int x)
 {

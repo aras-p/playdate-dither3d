@@ -36,7 +36,6 @@ typedef struct MeshInstance {
 } MeshInstance;
 
 void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, int thick, const uint8_t pattern[8]);
-void fillTriangle(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const uint8_t pattern[8]);
 
 void scene_init(Scene* scene);
 void scene_shutdown(Scene* scene);
@@ -50,6 +49,7 @@ enum DrawStyle {
 	Draw_Pattern,
 	// 31ms bluenoise dither, rasterizer loop from mini3
 	// 33ms bluenoise dither, generic scanline rasterizer loop (more per-row overhead)
+	// 24ms no bluenoise screen buffer; use the bluenoise thresholding directly in rasterizer
 	Draw_Bluenoise,
 
 	// 35ms device, 0.46mc PC
