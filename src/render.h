@@ -70,6 +70,7 @@ enum DrawStyle {
 	// 76ms device, perspective correct UVs at 2x horizontal step
 	// 74ms device, skip rest of row once we get out of triangle
 	// 65ms device, simplify sampled pattern comparison
+	// 63ms device, small micro opts
 	Draw_Dither3D_Halfspace,
 	Draw_Count
 };

@@ -829,6 +829,9 @@ static inline float adjust_float_exp(float x, int i)
 #define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
 #define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
 
+#define DITHER_SCALE (6.0f)
+#define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
+
 FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y)
 {
 	// Get the UV coordinates in the current fractal level.
@@ -875,26 +878,8 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 	return pattern < compare;
 }
 
-void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+FORCE_INLINE int get_dither3d_compare_val(const uint8_t brightness, const uint8_t brightnessCurve, const float brightnessSpacingMultiplier)
 {
-	raster_halfspace_t hs;
-	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
-		return;
-
-	// Lookup brightness to make dither output have correct output
-	// brightness at different input brightness values.
-	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
-	// Note: _SizeVariability fixed to default 0.0, following math simplified
-	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f);
-
-#define DITHER_SCALE (6.0f)
-#define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
-
-	// Scale the spacing by the specified input (power of two) scale.
-	// We keep the spacing the same regardless of whether we're using
-	// a pattern with more or less dots in it.
-	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
-
 	// We create sharp dots from them by increasing the contrast.
 	const float _Contrast = 1.0f;
 	const float contrast = _Contrast * DITHER_SCALE_EXP * brightnessSpacingMultiplier * 0.1f;
@@ -905,6 +890,56 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 	// The brighter output we want, the lower threshold we need to use
 	const uint8_t threshold = 255 - brightnessCurve;
 	const int compare_val = (int)(threshold - baseVal / contrast + 0.5f);
+	return compare_val;
+}
+
+FORCE_INLINE int get_dither3d_level_fraction(float spacing, int *r_patternScaleLevel_i)
+{
+	// Find the power-of-two level that corresponds to the dot spacing.
+	//float spacingLog = log2f(spacing);
+	//const float patternScaleLevel = floorf(spacingLog); // Fractal level.
+	//const int patternScaleLevel_i = (int)patternScaleLevel;
+	//float f = spacingLog - patternScaleLevel; // Fractional part.
+	//
+	// instead of above, work on float bits directly:
+	union {
+		float f;
+		uint32_t u;
+	} fu;
+	fu.f = spacing;
+	// patternScaleLevel is just float exponent:
+	*r_patternScaleLevel_i = (int)((fu.u >> 23) & 0xFF) - 127;
+
+	// fractional part is:
+	// - take the mantissa bits of spacing,
+	// - set exponent to 127, i.e. range [0,1)
+	// - use that as a float and subtract 1.0
+	fu.u = (fu.u & 0x7FFFFF) | 0x3F800000;
+	const float f = fu.f - 1.0f;
+
+	// Get the third coordinate for the 3D texture lookup.
+	// Note: simplified the math terms compared to upstream.
+	const int subLayer_i = (int)(0.75f * DITHER_SLICES * f + 0.5f);
+	return subLayer_i * DITHER_RES;
+}
+
+
+void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+{
+	raster_halfspace_t hs;
+	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
+		return;
+
+	// Lookup brightness to make dither output have correct output
+	// brightness at different input brightness values.
+	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
+	// Note: _SizeVariability fixed to default 0.0, following math simplified
+	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f + 0.001f);
+	// Scale the spacing by the specified input (power of two) scale.
+	// We keep the spacing the same regardless of whether we're using
+	// a pattern with more or less dots in it.
+	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
+	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
 
 	// Rasterize: rows
 	raster_halfspace_state_t state;
@@ -927,31 +962,8 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			float spacing = (fabsf(state.dxu) + fabsf(state.dxv) + fabsf(state.dyu) + fabsf(state.dyv)) * 0.25f;
 			spacing *= spacingMul;
 
-			// Find the power-of-two level that corresponds to the dot spacing.
-			//float spacingLog = log2f(spacing);
-			//const float patternScaleLevel = floorf(spacingLog); // Fractal level.
-			//const int patternScaleLevel_i = (int)patternScaleLevel;
-			//float f = spacingLog - patternScaleLevel; // Fractional part.
-			//
-			// instead of above, work on float bits directly:
-			union {
-				float f;
-				uint32_t u;
-			} fu;
-			fu.f = spacing;
-			// patternScaleLevel is just float exponent:
-			const int patternScaleLevel_i = (int)((fu.u >> 23) & 0xFF) - 127;
-			// fractional part is:
-			// - take the mantissa bits of spacing,
-			// - set exponent to 127, i.e. range [0,1)
-			// - use that as a float and subtract 1.0
-			fu.u = (fu.u & 0x7FFFFF) | 0x3F800000;
-			const float f = fu.f - 1.0f;
-
-			// Get the third coordinate for the 3D texture lookup.
-			// Note: simplified the math terms compared to upstream.
-			const int subLayer_i = (int)(0.75f * DITHER_SLICES * f + 0.5f);
-			const int subLayer_offset = subLayer_i * DITHER_RES;
+			int patternScaleLevel_i;
+			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
 
 			// Note: accumulating pixel outputs/masks into 32 bit words and writing them out
 			// once they are done (or trailing after the loop) seems to be slightly slower on Playdate,
@@ -1235,22 +1247,8 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		else if (vi < 0)
 			vi = 0;
 
-		// fill
-		{
-			const uint8_t* pattern = (const uint8_t*)&patterns[vi];
-			draw_triangle_pattern_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, pattern);
-		}
-		// wire
-		if (wire)
-		{
-			//const uint8_t* color = patterns[0]; // 32: white, 0: black
-			vi -= 16;
-			if (vi < 0) vi = 0;
-			const uint8_t* pattern = (const uint8_t*)&patterns[vi];
-			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
-		}
+		const uint8_t* pattern = (const uint8_t*)&patterns[vi];
+		draw_triangle_pattern_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, pattern);
 	}
 	else if (style == Draw_Bluenoise)
 	{
@@ -1260,53 +1258,30 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		if (col > 255) col = 255;
 
 		draw_triangle_bluenoise_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, col);
-
-		if (wire)
-		{
-			const uint8_t* pattern = (const uint8_t*)&patterns[0];
-			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
-		}
 	}
 	else if (style == Draw_Checker_Scanline)
 	{
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_checker_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
-
-		if (wire)
-		{
-			const uint8_t* pattern = (const uint8_t*)&patterns[0];
-			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
-		}
 	}
 	else if (style == Draw_Checker_Halfspace)
 	{
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_checker_halfspace(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
-
-		if (wire)
-		{
-			const uint8_t* pattern = (const uint8_t*)&patterns[0];
-			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
-		}
 	}
 	else if (style == Draw_Dither3D_Halfspace)
 	{
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_dither3d_halfspace(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
+	}
 
-		if (wire)
-		{
-			const uint8_t* pattern = (const uint8_t*)&patterns[0];
-			drawLine(bitmap, rowstride, p1, p2, 1, pattern);
-			drawLine(bitmap, rowstride, p2, p3, 1, pattern);
-			drawLine(bitmap, rowstride, p3, p1, 1, pattern);
-		}
+	// wireframe
+	if (wire)
+	{
+		const uint8_t* pattern = (const uint8_t*)&patterns[0];
+		drawLine(bitmap, rowstride, p1, p2, 1, pattern);
+		drawLine(bitmap, rowstride, p2, p3, 1, pattern);
+		drawLine(bitmap, rowstride, p3, p1, 1, pattern);
 	}
 }
 
