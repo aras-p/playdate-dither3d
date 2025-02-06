@@ -36,6 +36,7 @@ typedef struct MeshInstance {
 } MeshInstance;
 
 void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, int thick, const uint8_t pattern[8]);
+void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire);
 
 void scene_init(Scene* scene);
 void scene_shutdown(Scene* scene);
@@ -55,8 +56,15 @@ enum DrawStyle {
 	// 35ms device, 0.46mc PC
 	Draw_Checker_Scanline,
 
-	// 55ms device halfspace
+	// 42ms device, fl_fl_div, write 32 pixels
+	Draw_Checker_Hecker,
+
+	// 53ms device halfspace
 	Draw_Checker_Halfspace,
+
+	Draw_Dither3D_Scanline, // wrong/incorrect right now
+	// 102ms device, fl_fl_div, perspective correct derivatives, write each bit
+	Draw_Dither3D_Hecker,
 
 	// 605ms device, 5.8ms PC
 	// 316ms device, 4.2ms PC adjust_float_exp

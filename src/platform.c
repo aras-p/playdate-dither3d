@@ -777,6 +777,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
 		.event_cb = sapp_onevent,
 		.width = SCREEN_X * 2,
 		.height = SCREEN_Y * 2,
+		.high_dpi = true,
 		.window_title = "Render Test",
 		.icon.sokol_default = true,
 		.logger.func = slog_func,

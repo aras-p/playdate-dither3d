@@ -14,10 +14,10 @@
 
 // -------- Test Plane
 static float3 g_mesh_TestPlane_vb[] = { // 4 verts
-  {-1.0f, 0.0f, -1.0f},
-  {-1.0f, 0.0f,  1.0f},
-  { 1.0f, 0.0f,  1.0f},
-  { 1.0f, 0.0f, -1.0f},
+  {-0.5f, -0.5f, 0.0f},
+  {-0.5f,  0.5f, 0.0f},
+  { 0.5f,  0.5f, 0.0f},
+  { 0.5f, -0.5f, 0.0f},
 };
 static uint16_t g_mesh_TestPlane_ib[] = { // 2 tris
   0, 1, 2,
@@ -25,19 +25,19 @@ static uint16_t g_mesh_TestPlane_ib[] = { // 2 tris
 };
 static float g_mesh_TestPlane_uv[] = { // 6 UV coords
 	0, 0,
-	0, 1,
-	1, 1,
+	0, 2,
+	2, 2,
 	0, 0,
-	1, 1,
-	1, 0,
+	2, 2,
+	2, 0,
 };
 static Mesh g_mesh_TestPlane = { 4, g_mesh_TestPlane_vb, 2, g_mesh_TestPlane_ib, g_mesh_TestPlane_uv };
 
 static Scene s_scene;
 
-static bool s_draw_test = false;
+static bool s_draw_test = true;
 static bool s_draw_wire = false;
-static enum DrawStyle s_draw_style = Draw_Dither3D_Halfspace;
+static enum DrawStyle s_draw_style = Draw_Checker_Halfspace;
 static float s_cam_dist = 8.0f;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
@@ -119,11 +119,96 @@ void fx_meshes_update()
 	}
 	else
 	{
-		//scene_setCamera(&s_scene, (float3) { cs * 0.1f, 8.0f, ss * 0.1f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
-		//scene_setCamera(&s_scene, (float3) { 4.0f, 2.0f, 0.0f }, (float3) { 0, 0, 0 }, 1.0f, (float3) { 0, -1, 0 });
-		xform test_tr = xform_identity; //  xform_make_axis_angle(G.crank_angle_rad, (float3) { 0, 0, 1 });
-		test_tr.m[0][0] = test_tr.m[1][1] = test_tr.m[2][2] = 4.0f;
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &test_tr, s_draw_style, s_draw_wire);
+		float3 p1, p2, p3, nn;
+		nn = f3(0, 0, -1);
+
+		scene_setCamera(&s_scene, f3(0, 0, -1.5f), f3(0,0,0), 1.0f, f3(0,1,0));
+		xform tr = xform_make_axis_angle(M_PIf * -0.5f, f3(1, 0, 0));
+		tr.y = 0.3f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
+
+		tr = xform_make_axis_angle(M_PIf * 0.5f, f3(1, 0, 0));
+		xform rrr = xform_make_axis_angle(M_PIf * 0.3f, f3(0, 1, 0));
+		tr = xform_multiply(&tr, &rrr);
+		tr.y = -0.3f;
+		tr.x = -0.5f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
+
+		// top right area, adjoining triangles in various configuration; should be no gaps and no double raster
+		const float sc = 2.0f;
+		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 80 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+
+		// right side, from the bottom:
+		// 20x20 in bottom right, 1px away from screen edge
+		p1 = f3(SCREEN_X - 1 - 20, SCREEN_Y - 1 - 20, 1); p2 = f3(SCREEN_X - 1 - 20, SCREEN_Y - 1, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 1, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 1 - 20, SCREEN_Y - 1 - 20, 1); p2 = f3(SCREEN_X - 1, SCREEN_Y - 1, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 1 - 20, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// 30x30, so each checker square maps to 1.5 pixels, should be aliased or non-uniform somehow
+		p1 = f3(SCREEN_X - 1 - 30, SCREEN_Y - 2 - 50, 1); p2 = f3(SCREEN_X - 1 - 30, SCREEN_Y - 2 - 20, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 2 - 20, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 1 - 30, SCREEN_Y - 2 - 50, 1); p2 = f3(SCREEN_X - 1, SCREEN_Y - 2 - 20, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 2 - 50, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// 40x40, so each checker square maps to 2
+		p1 = f3(SCREEN_X - 1 - 40, SCREEN_Y - 3 - 90, 1); p2 = f3(SCREEN_X - 1 - 40, SCREEN_Y - 3 - 50, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 3 - 50, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 1 - 40, SCREEN_Y - 3 - 90, 1); p2 = f3(SCREEN_X - 1, SCREEN_Y - 3 - 50, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 3 - 90, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// left side, from the bottom:
+
+		// 20x20 in bottom left, 1px away from screen edge
+		p1 = f3(1, SCREEN_Y-1-20, 1); p2 = f3(1, SCREEN_Y - 1, 1); p3 = f3(1+20, SCREEN_Y - 1, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(1, SCREEN_Y - 1 - 20, 1); p2 = f3(1 + 20, SCREEN_Y - 1, 1); p3 = f3(1 + 20, SCREEN_Y - 1 - 20, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// 20x20 atop of it, 1px gap, rotated 90
+		p1 = f3(1 + 20, SCREEN_Y - 2 - 40, 1); p2 = f3(1, SCREEN_Y - 2 - 40, 1); p3 = f3(1, SCREEN_Y - 2 - 20, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(1 + 20, SCREEN_Y - 2 - 40, 1); p2 = f3(1, SCREEN_Y - 2 - 20, 1); p3 = f3(1 + 20, SCREEN_Y - 2 - 20, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// same atop of it, offset by less than half a pixel, should look the same
+		p1 = f3(0.6f + 20, SCREEN_Y - 3.3f - 60, 1); p2 = f3(0.6f, SCREEN_Y - 3.3f - 60, 1); p3 = f3(0.6f, SCREEN_Y - 3.3f - 40, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(0.6f + 20, SCREEN_Y - 3.3f - 60, 1); p2 = f3(0.6f, SCREEN_Y - 3.3f - 40, 1); p3 = f3(0.6f + 20, SCREEN_Y - 3.3f - 40, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// clipped by screen edges
+		// bottom
+		p1 = f3(SCREEN_X / 2 - 10, SCREEN_Y - 30, 1); p2 = f3(SCREEN_X / 2 - 30, SCREEN_Y + 10, 1); p3 = f3(SCREEN_X / 2 + 10, SCREEN_Y + 30, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X / 2 - 10, SCREEN_Y - 30, 1); p2 = f3(SCREEN_X / 2 + 10, SCREEN_Y + 30, 1); p3 = f3(SCREEN_X / 2 + 30, SCREEN_Y - 10, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// top
+		p1 = f3(SCREEN_X / 2 + 40 - 10, 0 - 30, 1); p2 = f3(SCREEN_X / 2 + 40 - 30, 0 + 10, 1); p3 = f3(SCREEN_X / 2 + 40 + 10, 0 + 30, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X / 2 + 40 - 10, 0 - 30, 1); p2 = f3(SCREEN_X / 2 + 40 + 10, 0 + 30, 1); p3 = f3(SCREEN_X / 2 + 40 + 30, 0 - 10, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// left
+		p1 = f3(0 - 10, SCREEN_Y/2 - 30, 1); p2 = f3(0 - 30, SCREEN_Y/2 + 10, 1); p3 = f3(0 + 10, SCREEN_Y/2 + 30, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(0 - 10, SCREEN_Y/2 - 30, 1); p2 = f3(0 + 10, SCREEN_Y/2 + 30, 1); p3 = f3(0 + 30, SCREEN_Y/2 - 10, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// top right
+		p1 = f3(SCREEN_X - 10, 0 - 30, 1); p2 = f3(SCREEN_X - 30, 0 + 10, 1); p3 = f3(SCREEN_X + 10, 0 + 30, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 10, 0 - 30, 1); p2 = f3(SCREEN_X + 10, 0 + 30, 1); p3 = f3(SCREEN_X + 30, 0 - 10, 1);
+		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
 	}
 
 	G.statval1 = s_draw_style;

@@ -309,14 +309,14 @@ static void switch_to_part_23(raster_scanline_t *hs)
 	int new_dx = slope(hs->p2->x, hs->p2->y, hs->p3->x, hs->p3->y, 16);
 	if (hs->sb < hs->sc)
 	{
-		hs->dx1 = new_dx;
-		hs->dudy = slope(hs->u2, hs->p2->y, hs->u3, hs->p3->y, UV_SHIFT);
-		hs->dvdy = slope(hs->v2, hs->p2->y, hs->v3, hs->p3->y, UV_SHIFT);
 		hs->x1row = (int)(hs->p2->x * (1 << 16));
+		hs->dx1 = new_dx;
 		hs->urow = (int)(hs->u2 * (1 << UV_SHIFT));
 		hs->vrow = (int)(hs->v2 * (1 << UV_SHIFT));
-		hs->dwdy = slope(hs->w2, hs->p2->y, hs->w3, hs->p3->y, W_SHIFT);
 		hs->wrow = (int)(hs->w2 * (1 << W_SHIFT));
+		hs->dudy = slope(hs->u2, hs->p2->y, hs->u3, hs->p3->y, UV_SHIFT);
+		hs->dvdy = slope(hs->v2, hs->p2->y, hs->v3, hs->p3->y, UV_SHIFT);
+		hs->dwdy = slope(hs->w2, hs->p2->y, hs->w3, hs->p3->y, W_SHIFT);
 	}
 	else
 	{
@@ -530,6 +530,22 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 			vi &= 63;
 			bool checker = (ui > 31) != (vi > 31);
 
+			uint8_t* dbg = plat_gfx_get_debug_frame();
+			if (dbg)
+			{
+				int dbg_idx = (hs.y * SCREEN_X + hs.x) * 4;
+				ui = (hs.u / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+				vi = (hs.v / divisor) >> max2(0, UV_SHIFT - W_SHIFT);
+				ui &= 63;
+				vi &= 63;
+
+				dbg[dbg_idx + 0] += checker ? 250 : 0;
+				dbg[dbg_idx + 1] += ui*4;
+				dbg[dbg_idx + 2] += vi*4;
+				dbg[dbg_idx + 3] = 255;
+			}
+
+
 			uint32_t texpix = checker ? 0 : 0x80;
 			color |= (texpix << 24) >> (hs.x % 32);
 
@@ -550,6 +566,258 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 		}
 
 		_drawMaskPattern(p, swap(mask), swap(color));
+	}
+}
+
+// --------------------------------------------------------------------------
+// From Chris Hecker's "Perspective Texture Mapping" series
+// at https://chrishecker.com/Miscellaneous_Technical_Articles
+// currently based on DIVFLFL.CPP
+
+typedef struct gradients_fl_fl {
+	float aOneOverZ[3];				// 1/z for each vertex
+	float aUOverZ[3];				// u/z for each vertex
+	float aVOverZ[3];				// v/z for each vertex
+	float dOneOverZdX, dOneOverZdY;	// d(1/z)/dX, d(1/z)/dY
+	float dUOverZdX, dUOverZdY;		// d(u/z)/dX, d(u/z)/dY
+	float dVOverZdX, dVOverZdY;		// d(v/z)/dX, d(v/z)/dY
+} gradients_fl_fl;
+
+static void gradients_fl_fl_init(gradients_fl_fl* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	float OneOverdX = 1 / (((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y)));
+	float OneOverdY = -OneOverdX;
+
+	{
+		float const OneOverZ = 1 / p0->z;
+		t->aOneOverZ[0] = OneOverZ;
+		t->aUOverZ[0] = uvs[0] * OneOverZ;
+		t->aVOverZ[0] = uvs[1] * OneOverZ;
+	}
+	{
+		float const OneOverZ = 1 / p1->z;
+		t->aOneOverZ[1] = OneOverZ;
+		t->aUOverZ[1] = uvs[2] * OneOverZ;
+		t->aVOverZ[1] = uvs[3] * OneOverZ;
+	}
+	{
+		float const OneOverZ = 1 / p2->z;
+		t->aOneOverZ[2] = OneOverZ;
+		t->aUOverZ[2] = uvs[4] * OneOverZ;
+		t->aVOverZ[2] = uvs[5] * OneOverZ;
+	}
+
+	t->dOneOverZdX = OneOverdX * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dOneOverZdY = OneOverdY * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
+			(p1->x - p2->x)));
+
+	t->dUOverZdX = OneOverdX * (((t->aUOverZ[1] - t->aUOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aUOverZ[0] - t->aUOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dUOverZdY = OneOverdY * (((t->aUOverZ[1] - t->aUOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aUOverZ[0] - t->aUOverZ[2]) *
+			(p1->x - p2->x)));
+
+	t->dVOverZdX = OneOverdX * (((t->aVOverZ[1] - t->aVOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aVOverZ[0] - t->aVOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dVOverZdY = OneOverdY * (((t->aVOverZ[1] - t->aVOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aVOverZ[0] - t->aVOverZ[2]) *
+			(p1->x - p2->x)));
+}
+
+typedef struct edge_fl_fl {
+	float X, XStep;					// fractional x and dX/dY
+	int Y, Height;					// current y and vertical count
+	float OneOverZ, OneOverZStep;	// 1/z and step
+	float UOverZ, UOverZStep;		// u/z and step
+	float VOverZ, VOverZStep;		// v/z and step
+} edge_fl_fl;
+
+static void edge_fl_fl_init(edge_fl_fl* t, const gradients_fl_fl* gradients, const float3* p0, const float3* p1, const float3* p2, int top, int bottom)
+{
+	float3 vertTop = top == 0 ? *p0 : (top == 1 ? *p1 : *p2);
+	float3 vertBottom = bottom == 0 ? *p0 : (bottom == 1 ? *p1 : *p2);
+	t->Y = (int)ceilf(vertTop.y);
+	int YEnd = (int)ceilf(vertBottom.y);
+	t->Height = YEnd - t->Y;
+	assert(t->Height >= 0);
+
+	float YPrestep = t->Y - vertTop.y;
+
+	float RealHeight = vertBottom.y - vertTop.y;
+	float RealWidth = vertBottom.x - vertTop.x;
+
+	t->X = ((RealWidth * YPrestep) / RealHeight) + vertTop.x;
+	t->XStep = RealWidth / RealHeight;
+	float XPrestep = t->X - vertTop.x;
+
+	t->OneOverZ = gradients->aOneOverZ[top] + YPrestep * gradients->dOneOverZdY
+		+ XPrestep * gradients->dOneOverZdX;
+	t->OneOverZStep = t->XStep * gradients->dOneOverZdX + gradients->dOneOverZdY;
+
+	t->UOverZ = gradients->aUOverZ[top] + YPrestep * gradients->dUOverZdY
+		+ XPrestep * gradients->dUOverZdX;
+	t->UOverZStep = t->XStep * gradients->dUOverZdX + gradients->dUOverZdY;
+
+	t->VOverZ = gradients->aVOverZ[top] + YPrestep * gradients->dVOverZdY
+		+ XPrestep * gradients->dVOverZdX;
+	t->VOverZStep = t->XStep * gradients->dVOverZdX + gradients->dVOverZdY;
+}
+
+static inline int edge_step(edge_fl_fl* t)
+{
+	t->X += t->XStep; t->Y++; t->Height--;
+	t->UOverZ += t->UOverZStep; t->VOverZ += t->VOverZStep; t->OneOverZ += t->OneOverZStep;
+	return t->Height;
+}
+
+static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* Gradients, edge_fl_fl* pLeft, edge_fl_fl* pRight)
+{
+	if (pLeft->Y < 0 || pLeft->Y >= SCREEN_Y)
+		return;
+
+	int XStart = (int)ceilf(pLeft->X);
+	XStart = max2(0, XStart);
+	float XPrestep = XStart - pLeft->X;
+
+	bitmap += pLeft->Y * rowstride;
+
+	int XEnd = (int)ceilf(pRight->X);
+	XEnd = min2(SCREEN_X, XEnd);
+	int Width = XEnd - XStart;
+
+	float OneOverZ = pLeft->OneOverZ + XPrestep * Gradients->dOneOverZdX;
+	float UOverZ = pLeft->UOverZ + XPrestep * Gradients->dUOverZdX;
+	float VOverZ = pLeft->VOverZ + XPrestep * Gradients->dVOverZdX;
+
+	int X = XStart;
+	while (Width-- > 0)
+	{
+		float Z = 1 / OneOverZ;
+		int U = (int)(UOverZ * Z * 64 * 5);
+		int V = (int)(VOverZ * Z * 64 * 5);
+
+		bool checker = ((U & 63) >= 32) != ((V & 63) >= 32);
+		int bit_mask = 1 << (7 - (X & 7));
+		if (checker)
+			bitmap[X / 8] |= bit_mask;
+		else
+			bitmap[X / 8] &= ~bit_mask;
+
+		uint8_t* dbg = plat_gfx_get_debug_frame();
+		if (dbg)
+		{
+			int dbg_idx = (pLeft->Y * SCREEN_X + X) * 4;
+			U = (int)(UOverZ * Z * 64);
+			V = (int)(VOverZ * Z * 64);
+			int ui = U & 63;
+			int vi = V & 63;
+			dbg[dbg_idx + 0] += checker ? 250 : 0;
+			dbg[dbg_idx + 1] += ui * 4;
+			dbg[dbg_idx + 2] += vi * 4;
+			dbg[dbg_idx + 3] = 255;
+		}
+
+		X++;
+
+		OneOverZ += Gradients->dOneOverZdX;
+		UOverZ += Gradients->dUOverZdX;
+		VOverZ += Gradients->dVOverZdX;
+	}
+}
+
+
+static void draw_triangle_checker_hecker(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	int Top, Middle, Bottom, MiddleForCompare, BottomForCompare;
+	float Y0 = p0->y, Y1 = p1->y, Y2 = p2->y;
+
+	// sort vertices in y
+	if (Y0 < Y1) {
+		if (Y2 < Y0) {
+			Top = 2; Middle = 0; Bottom = 1;
+			MiddleForCompare = 0; BottomForCompare = 1;
+		}
+		else {
+			Top = 0;
+			if (Y1 < Y2) {
+				Middle = 1; Bottom = 2;
+				MiddleForCompare = 1; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 1;
+				MiddleForCompare = 2; BottomForCompare = 1;
+			}
+		}
+	}
+	else {
+		if (Y2 < Y1) {
+			Top = 2; Middle = 1; Bottom = 0;
+			MiddleForCompare = 1; BottomForCompare = 0;
+		}
+		else {
+			Top = 1;
+			if (Y0 < Y2) {
+				Middle = 0; Bottom = 2;
+				MiddleForCompare = 3; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 0;
+				MiddleForCompare = 2; BottomForCompare = 3;
+			}
+		}
+	}
+
+	gradients_fl_fl Gradients;
+	gradients_fl_fl_init(&Gradients, p0, p1, p2, uvs);
+	edge_fl_fl TopToBottom;
+	edge_fl_fl TopToMiddle;
+	edge_fl_fl MiddleToBottom;
+	edge_fl_fl_init(&TopToBottom, &Gradients, p0, p1, p2, Top, Bottom);
+	edge_fl_fl_init(&TopToMiddle, &Gradients, p0, p1, p2, Top, Middle);
+	edge_fl_fl_init(&MiddleToBottom, &Gradients, p0, p1, p2, Middle, Bottom);
+	edge_fl_fl* pLeft, * pRight;
+	int MiddleIsLeft;
+
+	// the triangle is anti-clockwise, so if bottom > middle then middle is right
+	if (BottomForCompare > MiddleForCompare) {
+		MiddleIsLeft = 0;
+		pLeft = &TopToMiddle; pRight = &TopToBottom;
+	}
+	else {
+		MiddleIsLeft = 1;
+		pLeft = &TopToBottom; pRight = &TopToMiddle;
+	}
+
+	int Height = TopToMiddle.Height;
+
+	while (Height--) {
+		DrawScanLine(bitmap, rowstride, &Gradients, pLeft, pRight);
+		edge_step(&TopToMiddle); edge_step(&TopToBottom);
+	}
+
+	Height = MiddleToBottom.Height;
+
+	if (MiddleIsLeft) {
+		pLeft = &TopToBottom; pRight = &MiddleToBottom;
+	}
+	else {
+		pLeft = &MiddleToBottom; pRight = &TopToBottom;
+	}
+
+	while (Height--) {
+		DrawScanLine(bitmap, rowstride, &Gradients, pLeft, pRight);
+		edge_step(&MiddleToBottom); edge_step(&TopToBottom);
 	}
 }
 
@@ -832,7 +1100,7 @@ static inline float adjust_float_exp(float x, int i)
 #define DITHER_SCALE (6.0f)
 #define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
 
-FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y)
+FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y, const float debug_val)
 {
 	// Get the UV coordinates in the current fractal level.
 	// const float scaleLevelMul = 1.0f / exp2f(patternScaleLevel);
@@ -860,13 +1128,17 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		dbg.x = fract(u), dbg.y = fract(v);
 
 		// fractal UV
-		//dbg.x = fract(uu), dbg.y = fract(vv);
+		dbg.x = fract(uu), dbg.y = fract(vv);
 
 		// pattern
-		dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+		//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
 
 		// bw
-		//dbg.x = dbg.y = dbg.z = check < 0.0f ? 0.0f : 1.0f;
+		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
+
+		//dbg.x = debug_val * 5;
+		//dbg.y = -debug_val * 5;
+		//dbg.z = 0;
 
 		const int offset = (y * SCREEN_X + x) * 4 + 0;
 		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
@@ -972,9 +1244,13 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			const int mask_0 = 1 << (7 - ((state.x + 0) & 7));
 			const int mask_1 = 1 << (7 - ((state.x + 1) & 7));
 
+			//const float dbg = state.dxu;
+			//const float dbg = state.dyu;
+			const float dbg = state.dxv;
+			//float dbg = spacing;
 			if (state.inside_00)
 			{
-				bool check = do_pixel_sample(state.u_00, state.v_00, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y);
+				bool check = do_pixel_sample(state.u_00, state.v_00, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y, dbg);
 				if (check)
 					output_0[byte_idx] &= ~mask_0;
 				else
@@ -982,7 +1258,7 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			}
 			if (state.inside_01)
 			{
-				bool check = do_pixel_sample(state.u_01, state.v_01, patternScaleLevel_i, subLayer_offset, compare_val, state.x + 1, state.y);
+				bool check = do_pixel_sample(state.u_01, state.v_01, patternScaleLevel_i, subLayer_offset, compare_val, state.x + 1, state.y, dbg);
 				if (check)
 					output_0[byte_idx] &= ~mask_1;
 				else
@@ -990,7 +1266,7 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			}
 			if (state.inside_10)
 			{
-				bool check = do_pixel_sample(state.u_10, state.v_10, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y + 1);
+				bool check = do_pixel_sample(state.u_10, state.v_10, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y + 1, dbg);
 				if (check)
 					output_1[byte_idx] &= ~mask_0;
 				else
@@ -998,7 +1274,7 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			}
 			if (state.inside_11)
 			{
-				bool check = do_pixel_sample(state.u_11, state.v_11, patternScaleLevel_i, subLayer_offset, compare_val, state.x + 1, state.y + 1);
+				bool check = do_pixel_sample(state.u_11, state.v_11, patternScaleLevel_i, subLayer_offset, compare_val, state.x + 1, state.y + 1, dbg);
 				if (check)
 					output_1[byte_idx] &= ~mask_1;
 				else
@@ -1008,14 +1284,269 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 	}
 }
 
+
+static void DrawScanLine_dither3d(uint8_t* bitmap, int rowstride, const gradients_fl_fl* Gradients, edge_fl_fl* pLeft, edge_fl_fl* pRight, uint8_t compare_val, const float spacingMul)
+{
+	if (pLeft->Y < 0 || pLeft->Y >= SCREEN_Y)
+		return;
+
+	int XStart = (int)ceilf(pLeft->X);
+	XStart = max2(0, XStart);
+	float XPrestep = XStart - pLeft->X;
+
+	bitmap += pLeft->Y * rowstride;
+
+	int XEnd = (int)ceilf(pRight->X);
+	XEnd = min2(SCREEN_X, XEnd);
+	int Width = XEnd - XStart;
+
+	float OneOverZ = pLeft->OneOverZ + XPrestep * Gradients->dOneOverZdX;
+	float UOverZ = pLeft->UOverZ + XPrestep * Gradients->dUOverZdX;
+	float VOverZ = pLeft->VOverZ + XPrestep * Gradients->dVOverZdX;
+
+	int X = XStart;
+	while (Width-- > 0)
+	{
+		float Z = 1 / OneOverZ;
+		float uu = UOverZ * Z;
+		float vv = VOverZ * Z;
+
+		float uu_x = (UOverZ + Gradients->dUOverZdX) / (OneOverZ + Gradients->dOneOverZdX);
+		float vv_x = (VOverZ + Gradients->dVOverZdX) / (OneOverZ + Gradients->dOneOverZdX);
+		float uu_y = (UOverZ + Gradients->dUOverZdY) / (OneOverZ + Gradients->dOneOverZdY);
+		float vv_y = (VOverZ + Gradients->dVOverZdY) / (OneOverZ + Gradients->dOneOverZdY);
+		float dudx = uu_x - uu;
+		float dvdx = vv_x - vv;
+		float dudy = uu_y - uu;
+		float dvdy = vv_y - vv;
+
+		//float spacing = (fabsf(Gradients->dUOverZdX) + fabsf(Gradients->dVOverZdX) + fabsf(Gradients->dUOverZdY) + fabsf(Gradients->dVOverZdY)) * Z * 0.25f;
+		//float spacing = max2f(max2f(fabsf(Gradients->dUOverZdX), fabsf(Gradients->dVOverZdX)), max2f(fabsf(Gradients->dUOverZdY), fabsf(Gradients->dVOverZdY))) * Z;
+		//float spacing = min2f(min2f(fabsf(Gradients->dUOverZdX), fabsf(Gradients->dVOverZdX)), min2f(fabsf(Gradients->dUOverZdY), fabsf(Gradients->dVOverZdY))) * Z;
+		float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
+		spacing *= spacingMul;
+		int patternScaleLevel_i;
+		const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
+
+		float dbg = 0.0f;
+		//dbg = Gradients->dUOverZdX * Z;
+		//dbg = Gradients->dUOverZdY * Z;
+		dbg = dvdx;
+		dbg = dvdy;
+		bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, pLeft->Y, dbg);
+
+		int bit_mask = 1 << (7 - (X & 7));
+		if (check)
+			bitmap[X / 8] &= ~bit_mask;
+		else
+			bitmap[X / 8] |= bit_mask;
+
+		X++;
+		OneOverZ += Gradients->dOneOverZdX;
+		UOverZ += Gradients->dUOverZdX;
+		VOverZ += Gradients->dVOverZdX;
+	}
+}
+
+
+static void draw_triangle_dither3d_hecker(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const uint8_t brightness)
+{
+	// Lookup brightness to make dither output have correct output
+	// brightness at different input brightness values.
+	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
+	// Note: _SizeVariability fixed to default 0.0, following math simplified
+	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f + 0.001f);
+	// Scale the spacing by the specified input (power of two) scale.
+	// We keep the spacing the same regardless of whether we're using
+	// a pattern with more or less dots in it.
+	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
+	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
+
+
+	int Top, Middle, Bottom, MiddleForCompare, BottomForCompare;
+	float Y0 = p0->y, Y1 = p1->y, Y2 = p2->y;
+
+	// sort vertices in y
+	if (Y0 < Y1) {
+		if (Y2 < Y0) {
+			Top = 2; Middle = 0; Bottom = 1;
+			MiddleForCompare = 0; BottomForCompare = 1;
+		}
+		else {
+			Top = 0;
+			if (Y1 < Y2) {
+				Middle = 1; Bottom = 2;
+				MiddleForCompare = 1; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 1;
+				MiddleForCompare = 2; BottomForCompare = 1;
+			}
+		}
+	}
+	else {
+		if (Y2 < Y1) {
+			Top = 2; Middle = 1; Bottom = 0;
+			MiddleForCompare = 1; BottomForCompare = 0;
+		}
+		else {
+			Top = 1;
+			if (Y0 < Y2) {
+				Middle = 0; Bottom = 2;
+				MiddleForCompare = 3; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 0;
+				MiddleForCompare = 2; BottomForCompare = 3;
+			}
+		}
+	}
+
+	gradients_fl_fl Gradients;
+	gradients_fl_fl_init(&Gradients, p0, p1, p2, uvs);
+	edge_fl_fl TopToBottom;
+	edge_fl_fl TopToMiddle;
+	edge_fl_fl MiddleToBottom;
+	edge_fl_fl_init(&TopToBottom, &Gradients, p0, p1, p2, Top, Bottom);
+	edge_fl_fl_init(&TopToMiddle, &Gradients, p0, p1, p2, Top, Middle);
+	edge_fl_fl_init(&MiddleToBottom, &Gradients, p0, p1, p2, Middle, Bottom);
+	edge_fl_fl* pLeft, * pRight;
+	int MiddleIsLeft;
+
+	// the triangle is anti-clockwise, so if bottom > middle then middle is right
+	if (BottomForCompare > MiddleForCompare) {
+		MiddleIsLeft = 0;
+		pLeft = &TopToMiddle; pRight = &TopToBottom;
+	}
+	else {
+		MiddleIsLeft = 1;
+		pLeft = &TopToBottom; pRight = &TopToMiddle;
+	}
+
+	int Height = TopToMiddle.Height;
+
+	while (Height--) {
+		DrawScanLine_dither3d(bitmap, rowstride, &Gradients, pLeft, pRight, compare_val, spacingMul);
+		edge_step(&TopToMiddle); edge_step(&TopToBottom);
+	}
+
+	Height = MiddleToBottom.Height;
+
+	if (MiddleIsLeft) {
+		pLeft = &TopToBottom; pRight = &MiddleToBottom;
+	}
+	else {
+		pLeft = &MiddleToBottom; pRight = &TopToBottom;
+	}
+
+	while (Height--) {
+		DrawScanLine_dither3d(bitmap, rowstride, &Gradients, pLeft, pRight, compare_val, spacingMul);
+		edge_step(&MiddleToBottom); edge_step(&TopToBottom);
+	}
+}
+
+static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+{
+	raster_scanline_t hs;
+	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 1.0f))
+		return;
+
+	// Lookup brightness to make dither output have correct output
+	// brightness at different input brightness values.
+	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
+	// Note: _SizeVariability fixed to default 0.0, following math simplified
+	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f + 0.001f);
+	// Scale the spacing by the specified input (power of two) scale.
+	// We keep the spacing the same regardless of whether we're using
+	// a pattern with more or less dots in it.
+	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
+	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
+
+	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
+	{
+		uint8_t* row = bitmap + hs.y * rowstride;
+		raster_scanline_x_begin(&hs);
+
+		// write out pixels 32 at a time
+		uint32_t mask = 0;
+		uint32_t* p = (uint32_t*)row + hs.x / 32;
+		uint32_t color = 0;
+
+		while (raster_scanline_x_continue(&hs))
+		{
+			mask |= 0x80000000u >> (hs.x & 31);
+
+			// |1 to prevent floating point division error
+			const float inv_divisor = (1 << W_SHIFT) / (float)(hs.w | 1);
+			const float inv_divisor_x1 = (1 << W_SHIFT) / (float)((hs.w + hs.dwdx) | 1);
+			const float inv_divisor_y1 = (1 << W_SHIFT) / (float)((hs.w + hs.dwdy) | 1);
+
+			float uu = (float)hs.u / (1 << UV_SHIFT) * inv_divisor;
+			float vv = (float)hs.v / (1 << UV_SHIFT) * inv_divisor;
+
+			float uu_x1 = (float)(hs.u + hs.dudx) / (1 << UV_SHIFT) * inv_divisor_x1;
+			float vv_x1 = (float)(hs.v + hs.dvdx) / (1 << UV_SHIFT) * inv_divisor_x1;
+			float uu_y1 = (float)(hs.u + hs.dudy) / (1 << UV_SHIFT) * inv_divisor_y1;
+			float vv_y1 = (float)(hs.v + hs.dvdy) / (1 << UV_SHIFT) * inv_divisor_y1;
+
+			float spacing = (fabsf(uu_x1 - uu) + fabsf(vv_x1 - vv) + fabsf(uu_y1 - uu) + fabsf(vv_x1 - vv)) * 0.25f;
+			float dbg = uu_y1 - uu;
+
+			spacing *= spacingMul;
+			int patternScaleLevel_i;
+			int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
+
+
+			dbg = spacing;
+			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, hs.x, hs.y, dbg);
+
+			uint32_t texpix = check ? 0 : 0x80;
+			color |= (texpix << 24) >> (hs.x % 32);
+
+			//int bit_mask = 1 << (7 - (hs.x & 7));
+			//if (checker)
+			//	row[hs.x / 8] &= ~bit_mask;
+			//else
+			//	row[hs.x / 8] |= bit_mask;
+
+			raster_scanline_x_step(&hs);
+
+			if (hs.x % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
+		}
+
+		_drawMaskPattern(p, swap(mask), swap(color));
+	}
+}
+
 // --------------------------------------------------------------------------
 // Simple pure black/white checkerboard with halfspace rasterizer
 
-FORCE_INLINE bool do_checker(float u, float v)
+FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 {
-	u = fract(u * 5.0f);
-	v = fract(v * 5.0f);
-	return (u > 0.5f) != (v > 0.5f);
+	float uu = fract(u * 5.0f);
+	float vv = fract(v * 5.0f);
+	bool checker = (uu > 0.5f) != (vv > 0.5f);
+
+	uint8_t* dbg = plat_gfx_get_debug_frame();
+	if (dbg)
+	{
+		int dbg_idx = (y * SCREEN_X + x) * 4;
+
+		int ui = ((int)(fract(u) * 64)) & 63;
+		int vi = ((int)(fract(v) * 64)) & 63;
+		dbg[dbg_idx + 0] += checker ? 250 : 0;
+		dbg[dbg_idx + 1] += ui * 4;
+		dbg[dbg_idx + 2] += vi * 4;
+
+		dbg[dbg_idx + 3] = 255;
+	}
+
+	return checker;
 }
 
 void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
@@ -1041,7 +1572,7 @@ void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float
 
 			if (state.inside_00)
 			{
-				bool check = do_checker(state.u_00, state.v_00);
+				bool check = do_checker(state.u_00, state.v_00, state.x, state.y);
 				if (check)
 					output_0[byte_idx] &= ~mask_0;
 				else
@@ -1049,7 +1580,7 @@ void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float
 			}
 			if (state.inside_01)
 			{
-				bool check = do_checker(state.u_01, state.v_01);
+				bool check = do_checker(state.u_01, state.v_01, state.x + 1, state.y);
 				if (check)
 					output_0[byte_idx] &= ~mask_1;
 				else
@@ -1057,7 +1588,7 @@ void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float
 			}
 			if (state.inside_10)
 			{
-				bool check = do_checker(state.u_10, state.v_10);
+				bool check = do_checker(state.u_10, state.v_10, state.x, state.y + 1);
 				if (check)
 					output_1[byte_idx] &= ~mask_0;
 				else
@@ -1065,7 +1596,7 @@ void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float
 			}
 			if (state.inside_11)
 			{
-				bool check = do_checker(state.u_11, state.v_11);
+				bool check = do_checker(state.u_11, state.v_11, state.x + 1, state.y + 1);
 				if (check)
 					output_1[byte_idx] &= ~mask_1;
 				else
@@ -1199,7 +1730,7 @@ static Pattern patterns[] =
 	{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }
 };
 
-static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire)
+void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire)
 {
 	// If any vertex is behind the camera, skip it
 	if (p1->z <= 0 || p2->z <= 0 || p3->z <= 0)
@@ -1264,10 +1795,24 @@ static void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, co
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_checker_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
 	}
+	else if (style == Draw_Checker_Hecker)
+	{
+		// draw strictly black/white checker based on UV coordinates
+		draw_triangle_checker_hecker(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
+	}
 	else if (style == Draw_Checker_Halfspace)
 	{
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_checker_halfspace(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
+	}
+	else if (style == Draw_Dither3D_Scanline)
+	{
+		// draw strictly black/white checker based on UV coordinates
+		draw_triangle_dither3d_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
+	}
+	else if (style == Draw_Dither3D_Hecker)
+	{
+		draw_triangle_dither3d_hecker(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
 	}
 	else if (style == Draw_Dither3D_Halfspace)
 	{

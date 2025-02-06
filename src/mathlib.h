@@ -149,6 +149,11 @@ typedef struct float3
 	float z;
 } float3;
 
+static inline float3 f3(float x, float y, float z)
+{
+	return (float3) {.x=x, .y=y, .z=z };
+}
+
 static inline float3 v3_cross(float3 a, float3 b)
 {
 	return (float3){ .x = a.y * b.z - a.z * b.y, .y = a.z * b.x - a.x * b.z, .z = a.x * b.y - a.y * b.x };
@@ -233,6 +238,7 @@ typedef struct xform
 } xform;
 extern xform xform_identity;
 xform xform_make(float m11, float m12, float m13, float m21, float m22, float m23, float m31, float m32, float m33);
+xform xform_axes(float3 ax, float3 ay, float3 az, float3 pos);
 xform xform_make_translate(float dx, float dy, float dz);
 xform xform_make_axis_angle(float angle, float3 axis);
 xform xform_multiply(const xform* l, const xform* r);

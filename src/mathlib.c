@@ -17,6 +17,11 @@ xform xform_make(float m11, float m12, float m13, float m21, float m22, float m2
 	return (xform) { .m = { {m11, m12, m13}, {m21, m22, m23}, {m31, m32, m33} }, .x = 0, .y = 0, .z = 0 };
 }
 
+xform xform_axes(float3 ax, float3 ay, float3 az, float3 pos)
+{
+	return (xform) { .m = { {ax.x, ax.y, ax.z}, {ay.x, ay.y, ay.z}, {az.x, az.y, az.z} }, .x = pos.x, .y = pos.y, .z = pos.z };
+}
+
 xform xform_make_translate(float dx, float dy, float dz)
 {
 	return (xform) { .m = { {1, 0, 0}, {0, 1, 0}, {0, 0, 1} }, .x = dx, .y = dy, .z = dz };
