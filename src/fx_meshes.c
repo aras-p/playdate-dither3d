@@ -37,7 +37,7 @@ static Scene s_scene;
 
 static bool s_draw_test = true;
 static bool s_draw_wire = false;
-static enum DrawStyle s_draw_style = Draw_Checker_Halfspace;
+static enum DrawStyle s_draw_style = Draw_Checker_HeckerSub;
 static float s_cam_dist = 8.0f;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
@@ -122,30 +122,6 @@ void fx_meshes_update()
 		float3 p1, p2, p3, nn;
 		nn = f3(0, 0, -1);
 
-		scene_setCamera(&s_scene, f3(0, 0, -1.5f), f3(0,0,0), 1.0f, f3(0,1,0));
-		xform tr = xform_make_axis_angle(M_PIf * -0.5f, f3(1, 0, 0));
-		tr.y = 0.3f;
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
-
-		tr = xform_make_axis_angle(M_PIf * 0.5f, f3(1, 0, 0));
-		xform rrr = xform_make_axis_angle(M_PIf * 0.3f, f3(0, 1, 0));
-		tr = xform_multiply(&tr, &rrr);
-		tr.y = -0.3f;
-		tr.x = -0.5f;
-		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
-
-		// top right area, adjoining triangles in various configuration; should be no gaps and no double raster
-		const float sc = 2.0f;
-		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 80 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
-		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
-
-
 		// right side, from the bottom:
 		// 20x20 in bottom right, 1px away from screen edge
 		p1 = f3(SCREEN_X - 1 - 20, SCREEN_Y - 1 - 20, 1); p2 = f3(SCREEN_X - 1 - 20, SCREEN_Y - 1, 1); p3 = f3(SCREEN_X - 1, SCREEN_Y - 1, 1);
@@ -209,6 +185,30 @@ void fx_meshes_update()
 		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
 		p1 = f3(SCREEN_X - 10, 0 - 30, 1); p2 = f3(SCREEN_X + 10, 0 + 30, 1); p3 = f3(SCREEN_X + 30, 0 - 10, 1);
 		drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+
+		// quad meshes with perspective
+		scene_setCamera(&s_scene, f3(0, 0, -1.5f), f3(0, 0, 0), 1.0f, f3(0, 1, 0));
+		xform tr = xform_make_axis_angle(M_PIf * -0.5f, f3(1, 0, 0));
+		tr.y = 0.3f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
+
+		tr = xform_make_axis_angle(M_PIf * 0.5f, f3(1, 0, 0));
+		xform rrr = xform_make_axis_angle(M_PIf * 0.3f, f3(0, 1, 0));
+		tr = xform_multiply(&tr, &rrr);
+		tr.y = -0.3f;
+		tr.x = -0.5f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
+
+		// top right area, adjoining triangles in various configuration; should be no gaps and no double raster
+		const float sc = 2.0f;
+		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 80 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 60 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p2 = f3(SCREEN_X - 30 * sc, 90 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 60 * sc, 20 * sc, 1); p3 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 50 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 40 * sc, 40 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 0, s_draw_style, s_draw_wire);
+		p1 = f3(SCREEN_X - 30 * sc, 10 * sc, 1); p2 = f3(SCREEN_X - 10 * sc, 50 * sc, 1); p3 = f3(SCREEN_X - 10 * sc, 10 * sc, 1); drawShapeFace(&s_scene, G.framebuffer, G.framebuffer_stride, &p1, &p2, &p3, &nn, &g_mesh_TestPlane, 1, s_draw_style, s_draw_wire);
 	}
 
 	G.statval1 = s_draw_style;

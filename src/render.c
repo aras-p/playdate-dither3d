@@ -572,7 +572,60 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 // --------------------------------------------------------------------------
 // From Chris Hecker's "Perspective Texture Mapping" series
 // at https://chrishecker.com/Miscellaneous_Technical_Articles
-// currently based on DIVFLFL.CPP
+// currently based on DIVFLFL.CPP and SUBAFXFL.CPP
+
+typedef int32_t fixed28_4;
+typedef int32_t fixed16_16;
+
+inline fixed28_4 FloatToFixed28_4(float Value) {
+	return (fixed28_4)(Value * 16);
+}
+inline float Fixed28_4ToFloat(fixed28_4 Value) {
+	return Value / 16.0f;
+}
+inline fixed16_16 FloatToFixed16_16(float Value) {
+	return (fixed16_16)(Value * 65536);
+}
+inline float Fixed16_16ToFloat(fixed16_16 Value) {
+	return Value / 65536.0f;
+}
+inline fixed28_4 Fixed28_4Mul(fixed28_4 A, fixed28_4 B) {
+	// could make this asm to prevent overflow
+	return (A * B) / 16;	// 28.4 * 28.4 = 24.8 / 16 = 28.4
+}
+inline int Ceil28_4(fixed28_4 Value) {
+	int ReturnValue;
+	int Numerator = Value - 1 + 16;
+	if (Numerator >= 0) {
+		ReturnValue = Numerator / 16;
+	}
+	else {
+		// deal with negative numerators correctly
+		ReturnValue = -((-Numerator) / 16);
+		ReturnValue -= ((-Numerator) % 16) ? 1 : 0;
+	}
+	return ReturnValue;
+}
+
+static inline void FloorDivMod(int Numerator, int Denominator, int *Floor, int *Mod)
+{
+	assert(Denominator > 0);		// we assume it's positive
+	if (Numerator >= 0) {
+		// positive case, C is okay
+		*Floor = Numerator / Denominator;
+		*Mod = Numerator % Denominator;
+	}
+	else {
+		// Numerator is negative, do the right thing
+		*Floor = -((-Numerator) / Denominator);
+		*Mod = (-Numerator) % Denominator;
+		if (*Mod) {
+			// there is a remainder
+			(*Floor)--; *Mod = Denominator - *Mod;
+		}
+	}
+}
+
 
 typedef struct gradients_fl_fl {
 	float aOneOverZ[3];				// 1/z for each vertex
@@ -582,6 +635,17 @@ typedef struct gradients_fl_fl {
 	float dUOverZdX, dUOverZdY;		// d(u/z)/dX, d(u/z)/dY
 	float dVOverZdX, dVOverZdY;		// d(v/z)/dX, d(v/z)/dY
 } gradients_fl_fl;
+
+typedef struct gradients_fx_fl_a {
+	float aOneOverZ[3];				// 1/z for each vertex
+	float aUOverZ[3];				// u/z for each vertex
+	float aVOverZ[3];				// v/z for each vertex
+	float dOneOverZdX, dOneOverZdY;	// d(1/z)/dX, d(1/z)/dY
+	float dUOverZdX, dUOverZdY;		// d(u/z)/dX, d(u/z)/dY
+	float dVOverZdX, dVOverZdY;		// d(v/z)/dX, d(v/z)/dY
+	fixed16_16 dUdXModifier;
+	fixed16_16 dVdXModifier;
+} gradients_fx_fl_a;
 
 static void gradients_fl_fl_init(gradients_fl_fl* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
 {
@@ -635,6 +699,86 @@ static void gradients_fl_fl_init(gradients_fl_fl* t, const float3* p0, const flo
 			(p1->x - p2->x)));
 }
 
+static void gradients_fx_fl_a_init(gradients_fx_fl_a* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	float OneOverdX = 1 / (((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y)));
+	float OneOverdY = -OneOverdX;
+
+	{
+		float const OneOverZ = 1 / p0->z;
+		t->aOneOverZ[0] = OneOverZ;
+		t->aUOverZ[0] = uvs[0] * OneOverZ;
+		t->aVOverZ[0] = uvs[1] * OneOverZ;
+	}
+	{
+		float const OneOverZ = 1 / p1->z;
+		t->aOneOverZ[1] = OneOverZ;
+		t->aUOverZ[1] = uvs[2] * OneOverZ;
+		t->aVOverZ[1] = uvs[3] * OneOverZ;
+	}
+	{
+		float const OneOverZ = 1 / p2->z;
+		t->aOneOverZ[2] = OneOverZ;
+		t->aUOverZ[2] = uvs[4] * OneOverZ;
+		t->aVOverZ[2] = uvs[5] * OneOverZ;
+	}
+
+	t->dOneOverZdX = OneOverdX * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dOneOverZdY = OneOverdY * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
+			(p1->x - p2->x)));
+
+	t->dUOverZdX = OneOverdX * (((t->aUOverZ[1] - t->aUOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aUOverZ[0] - t->aUOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dUOverZdY = OneOverdY * (((t->aUOverZ[1] - t->aUOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aUOverZ[0] - t->aUOverZ[2]) *
+			(p1->x - p2->x)));
+
+	t->dVOverZdX = OneOverdX * (((t->aVOverZ[1] - t->aVOverZ[2]) *
+		(p0->y - p2->y)) -
+		((t->aVOverZ[0] - t->aVOverZ[2]) *
+			(p1->y - p2->y)));
+	t->dVOverZdY = OneOverdY * (((t->aVOverZ[1] - t->aVOverZ[2]) *
+		(p0->x - p2->x)) -
+		((t->aVOverZ[0] - t->aVOverZ[2]) *
+			(p1->x - p2->x)));
+
+	// set up rounding modifiers
+
+	fixed16_16 const Half = 0x8000;
+	fixed16_16 const PosModifier = Half;
+	fixed16_16 const NegModifier = Half - 1;
+
+	float dUdXIndicator = t->dUOverZdX * t->aOneOverZ[0] - t->aUOverZ[0] * t->dOneOverZdX;
+	if (dUdXIndicator > 0)
+		t->dUdXModifier = PosModifier;
+	else if (dUdXIndicator < 0)
+		t->dUdXModifier = NegModifier;
+	else // dUdX == 0
+	{		
+		float dUdYIndicator = t->dUOverZdY * t->aOneOverZ[0] - t->aUOverZ[0] * t->dOneOverZdY;
+		t->dUdXModifier = (dUdYIndicator >= 0) ? PosModifier : NegModifier;
+	}
+
+	float dVdXIndicator = t->dVOverZdX * t->aOneOverZ[0] - t->aVOverZ[0] * t->dOneOverZdX;
+	if (dVdXIndicator > 0)
+		t->dVdXModifier = PosModifier;
+	else if (dVdXIndicator < 0)
+		t->dVdXModifier = NegModifier;
+	else // dVdX == 0
+	{		
+		float dVdYIndicator = t->dVOverZdY * t->aOneOverZ[0] - t->aVOverZ[0] * t->dOneOverZdY;
+		t->dVdXModifier = (dVdYIndicator >= 0) ? PosModifier : NegModifier;
+	}
+}
+
 typedef struct edge_fl_fl {
 	float X, XStep;					// fractional x and dX/dY
 	int Y, Height;					// current y and vertical count
@@ -642,6 +786,16 @@ typedef struct edge_fl_fl {
 	float UOverZ, UOverZStep;		// u/z and step
 	float VOverZ, VOverZStep;		// v/z and step
 } edge_fl_fl;
+
+typedef struct edge_fx_fl_a {
+	int X, XStep, Numerator, Denominator; // DDA info for x
+	int ErrorTerm;
+	int Y, Height;					// current y and vertical count
+	float OneOverZ, OneOverZStep, OneOverZStepExtra;// 1/z and step
+	float UOverZ, UOverZStep, UOverZStepExtra;		// u/z and step
+	float VOverZ, VOverZStep, VOverZStepExtra;		// v/z and step
+} edge_fx_fl_a;
+
 
 static void edge_fl_fl_init(edge_fl_fl* t, const gradients_fl_fl* gradients, const float3* p0, const float3* p1, const float3* p2, int top, int bottom)
 {
@@ -661,24 +815,74 @@ static void edge_fl_fl_init(edge_fl_fl* t, const gradients_fl_fl* gradients, con
 	t->XStep = RealWidth / RealHeight;
 	float XPrestep = t->X - vertTop.x;
 
-	t->OneOverZ = gradients->aOneOverZ[top] + YPrestep * gradients->dOneOverZdY
-		+ XPrestep * gradients->dOneOverZdX;
+	t->OneOverZ = gradients->aOneOverZ[top] + YPrestep * gradients->dOneOverZdY + XPrestep * gradients->dOneOverZdX;
 	t->OneOverZStep = t->XStep * gradients->dOneOverZdX + gradients->dOneOverZdY;
 
-	t->UOverZ = gradients->aUOverZ[top] + YPrestep * gradients->dUOverZdY
-		+ XPrestep * gradients->dUOverZdX;
+	t->UOverZ = gradients->aUOverZ[top] + YPrestep * gradients->dUOverZdY + XPrestep * gradients->dUOverZdX;
 	t->UOverZStep = t->XStep * gradients->dUOverZdX + gradients->dUOverZdY;
-
-	t->VOverZ = gradients->aVOverZ[top] + YPrestep * gradients->dVOverZdY
-		+ XPrestep * gradients->dVOverZdX;
+	
+	t->VOverZ = gradients->aVOverZ[top] + YPrestep * gradients->dVOverZdY + XPrestep * gradients->dVOverZdX;
 	t->VOverZStep = t->XStep * gradients->dVOverZdX + gradients->dVOverZdY;
 }
+
+static void edge_fx_fl_a_init(edge_fx_fl_a* t, const gradients_fx_fl_a* gradients, const float3* p0, const float3* p1, const float3* p2, int top, int bottom)
+{
+	float3 vertTop = top == 0 ? *p0 : (top == 1 ? *p1 : *p2);
+	float3 vertBottom = bottom == 0 ? *p0 : (bottom == 1 ? *p1 : *p2);
+	t->Y = (int)ceilf(vertTop.y);
+	int YEnd = (int)ceilf(vertBottom.y);
+	t->Height = YEnd - t->Y;
+	assert(t->Height >= 0);
+
+	if (t->Height)
+	{
+		fixed28_4 dN = FloatToFixed28_4(vertBottom.y - vertTop.y);
+		fixed28_4 dM = FloatToFixed28_4(vertBottom.x - vertTop.x);
+
+		fixed28_4 InitialNumerator = dM * 16 * t->Y - dM * FloatToFixed28_4(vertTop.y) + dN * FloatToFixed28_4(vertTop.x) - 1 + dN * 16;
+		FloorDivMod(InitialNumerator, dN * 16, &t->X, &t->ErrorTerm);
+		FloorDivMod(dM * 16, dN * 16, &t->XStep, &t->Numerator);
+		t->Denominator = dN * 16;
+
+		float YPrestep = Fixed28_4ToFloat(t->Y * 16 - FloatToFixed28_4(vertTop.y));
+		float XPrestep = Fixed28_4ToFloat(t->X * 16 - FloatToFixed28_4(vertTop.x));
+
+		t->OneOverZ = gradients->aOneOverZ[top] + YPrestep * gradients->dOneOverZdY + XPrestep * gradients->dOneOverZdX;
+		t->OneOverZStep = t->XStep * gradients->dOneOverZdX + gradients->dOneOverZdY;
+		t->OneOverZStepExtra = gradients->dOneOverZdX;
+
+		t->UOverZ = gradients->aUOverZ[top] + YPrestep * gradients->dUOverZdY + XPrestep * gradients->dUOverZdX;
+		t->UOverZStep = t->XStep * gradients->dUOverZdX + gradients->dUOverZdY;
+		t->UOverZStepExtra = gradients->dUOverZdX;
+
+		t->VOverZ = gradients->aVOverZ[top] + YPrestep * gradients->dVOverZdY + XPrestep * gradients->dVOverZdX;
+		t->VOverZStep = t->XStep * gradients->dVOverZdX + gradients->dVOverZdY;
+		t->VOverZStepExtra = gradients->dVOverZdX;
+	}
+}
+
 
 static inline int edge_step(edge_fl_fl* t)
 {
 	t->X += t->XStep; t->Y++; t->Height--;
 	t->UOverZ += t->UOverZStep; t->VOverZ += t->VOverZStep; t->OneOverZ += t->OneOverZStep;
 	return t->Height;
+}
+
+static inline int edge_step_a(edge_fx_fl_a* t)
+{
+	t->X += t->XStep; t->Y++; t->Height--;
+	t->UOverZ += t->UOverZStep; t->VOverZ += t->VOverZStep; t->OneOverZ += t->OneOverZStep;
+
+	t->ErrorTerm += t->Numerator;
+	if (t->ErrorTerm >= t->Denominator) {
+		t->X++;
+		t->ErrorTerm -= t->Denominator;
+		t->OneOverZ += t->OneOverZStepExtra;
+		t->UOverZ += t->UOverZStepExtra; t->VOverZ += t->VOverZStepExtra;
+	}
+	return t->Height;
+
 }
 
 static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* Gradients, edge_fl_fl* pLeft, edge_fl_fl* pRight)
@@ -733,6 +937,148 @@ static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* 
 		OneOverZ += Gradients->dOneOverZdX;
 		UOverZ += Gradients->dUOverZdX;
 		VOverZ += Gradients->dVOverZdX;
+	}
+}
+
+static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx_fl_a* Gradients, edge_fx_fl_a* pLeft, edge_fx_fl_a* pRight)
+{
+	if (pLeft->Y < 0 || pLeft->Y >= SCREEN_Y)
+		return;
+
+	int XStart = pLeft->X;
+	XStart = max2(0, XStart);
+	int XEnd = pRight->X;
+	XEnd = min2(SCREEN_X, XEnd);
+	int Width = XEnd - XStart;
+	if (Width <= 0)
+		return;
+
+	bitmap += pLeft->Y * rowstride;
+
+	float LeftClipAdj = (float)(XStart - pLeft->X);
+	float RightClipAdj = (float)(pRight->X - XEnd + 1);
+
+	const int AffineLength = 8;
+
+	float OneOverZLeft = pLeft->OneOverZ + LeftClipAdj * Gradients->dOneOverZdX;
+	float UOverZLeft = pLeft->UOverZ + LeftClipAdj * Gradients->dUOverZdX;
+	float VOverZLeft = pLeft->VOverZ + LeftClipAdj * Gradients->dVOverZdX;
+
+	float dOneOverZdXAff = Gradients->dOneOverZdX * AffineLength;
+	float dUOverZdXAff = Gradients->dUOverZdX * AffineLength;
+	float dVOverZdXAff = Gradients->dVOverZdX * AffineLength;
+
+	float OneOverZRight = OneOverZLeft + dOneOverZdXAff;
+	float UOverZRight = UOverZLeft + dUOverZdXAff;
+	float VOverZRight = VOverZLeft + dVOverZdXAff;
+
+	float ZLeft = 1 / OneOverZLeft;
+	float ULeft = ZLeft * UOverZLeft;
+	float VLeft = ZLeft * VOverZLeft;
+
+	float ZRight, URight, VRight;
+	fixed16_16 U, V, DeltaU = 0, DeltaV = 0;
+
+	int Subdivisions = Width / AffineLength;
+	int WidthModLength = Width % AffineLength;
+	if (!WidthModLength)
+	{
+		Subdivisions--;
+		WidthModLength = AffineLength;
+	}
+
+	int X = XStart;
+	while (Subdivisions-- > 0)
+	{
+		ZRight = 1 / OneOverZRight;
+		URight = ZRight * UOverZRight;
+		VRight = ZRight * VOverZRight;
+
+		U = FloatToFixed16_16(ULeft);
+		V = FloatToFixed16_16(VLeft);
+		DeltaU = FloatToFixed16_16(URight - ULeft) / AffineLength;
+		DeltaV = FloatToFixed16_16(VRight - VLeft) / AffineLength;
+
+		for (int Counter = 0; Counter < AffineLength; Counter++)
+		{
+			int UInt = (U * 5 * 64 + Gradients->dUdXModifier) >> 16;
+			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
+
+			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			int bit_mask = 1 << (7 - (X & 7));
+			if (checker)
+				bitmap[X / 8] |= bit_mask;
+			else
+				bitmap[X / 8] &= ~bit_mask;
+			uint8_t* dbg = plat_gfx_get_debug_frame();
+			if (dbg)
+			{
+				int dbg_idx = (pLeft->Y * SCREEN_X + X) * 4;
+				int ui = ((U * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				int vi = ((V * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				dbg[dbg_idx + 0] += checker ? 250 : 0;
+				dbg[dbg_idx + 1] += ui * 4;
+				dbg[dbg_idx + 2] += vi * 4;
+				dbg[dbg_idx + 3] = 255;
+			}
+
+			X++;
+			U += DeltaU;
+			V += DeltaV;
+		}
+
+		ZLeft = ZRight;
+		ULeft = URight;
+		VLeft = VRight;
+
+		OneOverZRight += dOneOverZdXAff;
+		UOverZRight += dUOverZdXAff;
+		VOverZRight += dVOverZdXAff;
+	}
+
+	if (WidthModLength)
+	{
+		ZRight = 1 / (pRight->OneOverZ - Gradients->dOneOverZdX * RightClipAdj);
+		URight = ZRight * (pRight->UOverZ - Gradients->dUOverZdX * RightClipAdj);
+		VRight = ZRight * (pRight->VOverZ - Gradients->dVOverZdX * RightClipAdj);
+
+		U = FloatToFixed16_16(ULeft);
+		V = FloatToFixed16_16(VLeft);
+
+		if (--WidthModLength)
+		{
+			// guard against div-by-0 for 1 pixel lines
+			DeltaU = FloatToFixed16_16(URight - ULeft) / WidthModLength;
+			DeltaV = FloatToFixed16_16(VRight - VLeft) / WidthModLength;
+		}
+
+		for (int Counter = 0; Counter <= WidthModLength; Counter++)
+		{
+			int UInt = (U * 5 * 64 + Gradients->dUdXModifier) >> 16;
+			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
+
+			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			int bit_mask = 1 << (7 - (X & 7));
+			if (checker)
+				bitmap[X / 8] |= bit_mask;
+			else
+				bitmap[X / 8] &= ~bit_mask;
+			uint8_t* dbg = plat_gfx_get_debug_frame();
+			if (dbg)
+			{
+				int dbg_idx = (pLeft->Y * SCREEN_X + X) * 4;
+				int ui = ((U * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				int vi = ((V * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				dbg[dbg_idx + 0] += checker ? 250 : 0;
+				dbg[dbg_idx + 1] += ui * 4;
+				dbg[dbg_idx + 2] += vi * 4;
+				dbg[dbg_idx + 3] = 255;
+			}
+
+			X++;
+			U += DeltaU;
+			V += DeltaV;
+		}
 	}
 }
 
@@ -818,6 +1164,90 @@ static void draw_triangle_checker_hecker(uint8_t* bitmap, int rowstride, const f
 	while (Height--) {
 		DrawScanLine(bitmap, rowstride, &Gradients, pLeft, pRight);
 		edge_step(&MiddleToBottom); edge_step(&TopToBottom);
+	}
+}
+
+static void draw_triangle_checker_heckersub(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	int Top, Middle, Bottom, MiddleForCompare, BottomForCompare;
+	float Y0 = p0->y, Y1 = p1->y, Y2 = p2->y;
+
+	// sort vertices in y
+	if (Y0 < Y1) {
+		if (Y2 < Y0) {
+			Top = 2; Middle = 0; Bottom = 1;
+			MiddleForCompare = 0; BottomForCompare = 1;
+		}
+		else {
+			Top = 0;
+			if (Y1 < Y2) {
+				Middle = 1; Bottom = 2;
+				MiddleForCompare = 1; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 1;
+				MiddleForCompare = 2; BottomForCompare = 1;
+			}
+		}
+	}
+	else {
+		if (Y2 < Y1) {
+			Top = 2; Middle = 1; Bottom = 0;
+			MiddleForCompare = 1; BottomForCompare = 0;
+		}
+		else {
+			Top = 1;
+			if (Y0 < Y2) {
+				Middle = 0; Bottom = 2;
+				MiddleForCompare = 3; BottomForCompare = 2;
+			}
+			else {
+				Middle = 2; Bottom = 0;
+				MiddleForCompare = 2; BottomForCompare = 3;
+			}
+		}
+	}
+
+	gradients_fx_fl_a Gradients;
+	gradients_fx_fl_a_init(&Gradients, p0, p1, p2, uvs);
+	edge_fx_fl_a TopToBottom;
+	edge_fx_fl_a TopToMiddle;
+	edge_fx_fl_a MiddleToBottom;
+	edge_fx_fl_a_init(&TopToBottom, &Gradients, p0, p1, p2, Top, Bottom);
+	edge_fx_fl_a_init(&TopToMiddle, &Gradients, p0, p1, p2, Top, Middle);
+	edge_fx_fl_a_init(&MiddleToBottom, &Gradients, p0, p1, p2, Middle, Bottom);
+	edge_fx_fl_a* pLeft, * pRight;
+	int MiddleIsLeft;
+
+	// the triangle is anti-clockwise, so if bottom > middle then middle is right
+	if (BottomForCompare > MiddleForCompare) {
+		MiddleIsLeft = 0;
+		pLeft = &TopToMiddle; pRight = &TopToBottom;
+	}
+	else {
+		MiddleIsLeft = 1;
+		pLeft = &TopToBottom; pRight = &TopToMiddle;
+	}
+
+	int Height = TopToMiddle.Height;
+
+	while (Height--) {
+		DrawScanLine_suba(bitmap, rowstride, &Gradients, pLeft, pRight);
+		edge_step_a(&TopToMiddle); edge_step_a(&TopToBottom);
+	}
+
+	Height = MiddleToBottom.Height;
+
+	if (MiddleIsLeft) {
+		pLeft = &TopToBottom; pRight = &MiddleToBottom;
+	}
+	else {
+		pLeft = &MiddleToBottom; pRight = &TopToBottom;
+	}
+
+	while (Height--) {
+		DrawScanLine_suba(bitmap, rowstride, &Gradients, pLeft, pRight);
+		edge_step_a(&MiddleToBottom); edge_step_a(&TopToBottom);
 	}
 }
 
@@ -1799,6 +2229,11 @@ void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const flo
 	{
 		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_checker_hecker(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
+	}
+	else if (style == Draw_Checker_HeckerSub)
+	{
+		// draw strictly black/white checker based on UV coordinates
+		draw_triangle_checker_heckersub(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6);
 	}
 	else if (style == Draw_Checker_Halfspace)
 	{

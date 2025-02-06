@@ -58,6 +58,7 @@ enum DrawStyle {
 
 	// 42ms device, fl_fl_div, write 32 pixels
 	Draw_Checker_Hecker,
+	Draw_Checker_HeckerSub,
 
 	// 53ms device halfspace
 	Draw_Checker_Halfspace,
