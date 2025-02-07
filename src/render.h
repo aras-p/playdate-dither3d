@@ -36,7 +36,6 @@ typedef struct MeshInstance {
 } MeshInstance;
 
 void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, int thick, const uint8_t pattern[8]);
-void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire);
 
 void scene_init(Scene* scene);
 void scene_shutdown(Scene* scene);
@@ -58,6 +57,7 @@ enum DrawStyle {
 
 	// 42ms device, fl_fl_div, write 32 pixels
 	Draw_Checker_Hecker,
+	// 34ms, fx_fl_sub, write each bit
 	Draw_Checker_HeckerSub,
 
 	// 53ms device halfspace
@@ -84,4 +84,5 @@ enum DrawStyle {
 	Draw_Count
 };
 
+void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire);
 void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* mesh, const xform* matrix, enum DrawStyle style, bool wire);

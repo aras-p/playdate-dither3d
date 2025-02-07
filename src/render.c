@@ -402,6 +402,8 @@ FORCE_INLINE void raster_scanline_x_step(raster_scanline_t* hs)
 
 // --------------------------------------------------------------------------
 
+#define DEBUG_CHECKER_RENDER 0
+
 static void draw_triangle_pattern_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t *pattern)
 {
 	raster_scanline_t hs;
@@ -530,6 +532,7 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 			vi &= 63;
 			bool checker = (ui > 31) != (vi > 31);
 
+#if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
 			if (dbg)
 			{
@@ -544,9 +547,10 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 				dbg[dbg_idx + 2] += vi*4;
 				dbg[dbg_idx + 3] = 255;
 			}
+#endif
 
 
-			uint32_t texpix = checker ? 0 : 0x80;
+			uint32_t texpix = checker ? 0x0 : 0x80;
 			color |= (texpix << 24) >> (hs.x % 32);
 
 			//int bit_mask = 1 << (7 - (hs.x & 7));
@@ -829,14 +833,15 @@ static void edge_fx_fl_a_init(edge_fx_fl_a* t, const gradients_fx_fl_a* gradient
 {
 	float3 vertTop = top == 0 ? *p0 : (top == 1 ? *p1 : *p2);
 	float3 vertBottom = bottom == 0 ? *p0 : (bottom == 1 ? *p1 : *p2);
-	t->Y = (int)ceilf(vertTop.y);
-	int YEnd = (int)ceilf(vertBottom.y);
+	fixed28_4 topYfx = FloatToFixed28_4(vertTop.y), botYfx = FloatToFixed28_4(vertBottom.y);
+	t->Y = Ceil28_4(topYfx);
+	int YEnd = Ceil28_4(botYfx);
 	t->Height = YEnd - t->Y;
 	assert(t->Height >= 0);
 
 	if (t->Height)
 	{
-		fixed28_4 dN = FloatToFixed28_4(vertBottom.y - vertTop.y);
+		fixed28_4 dN = botYfx - topYfx;
 		fixed28_4 dM = FloatToFixed28_4(vertBottom.x - vertTop.x);
 
 		fixed28_4 InitialNumerator = dM * 16 * t->Y - dM * FloatToFixed28_4(vertTop.y) + dN * FloatToFixed28_4(vertTop.x) - 1 + dN * 16;
@@ -914,10 +919,11 @@ static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* 
 		bool checker = ((U & 63) >= 32) != ((V & 63) >= 32);
 		int bit_mask = 1 << (7 - (X & 7));
 		if (checker)
-			bitmap[X / 8] |= bit_mask;
-		else
 			bitmap[X / 8] &= ~bit_mask;
+		else
+			bitmap[X / 8] |= bit_mask;
 
+#if DEBUG_CHECKER_RENDER
 		uint8_t* dbg = plat_gfx_get_debug_frame();
 		if (dbg)
 		{
@@ -931,6 +937,7 @@ static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* 
 			dbg[dbg_idx + 2] += vi * 4;
 			dbg[dbg_idx + 3] = 255;
 		}
+#endif
 
 		X++;
 
@@ -1007,9 +1014,11 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (checker)
-				bitmap[X / 8] |= bit_mask;
-			else
 				bitmap[X / 8] &= ~bit_mask;
+			else
+				bitmap[X / 8] |= bit_mask;
+
+#if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
 			if (dbg)
 			{
@@ -1021,6 +1030,7 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 				dbg[dbg_idx + 2] += vi * 4;
 				dbg[dbg_idx + 3] = 255;
 			}
+#endif
 
 			X++;
 			U += DeltaU;
@@ -1060,9 +1070,10 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (checker)
-				bitmap[X / 8] |= bit_mask;
-			else
 				bitmap[X / 8] &= ~bit_mask;
+			else
+				bitmap[X / 8] |= bit_mask;
+#if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
 			if (dbg)
 			{
@@ -1074,6 +1085,7 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 				dbg[dbg_idx + 2] += vi * 4;
 				dbg[dbg_idx + 3] = 255;
 			}
+#endif
 
 			X++;
 			U += DeltaU;
@@ -1962,6 +1974,7 @@ FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 	float vv = fract(v * 5.0f);
 	bool checker = (uu > 0.5f) != (vv > 0.5f);
 
+#if DEBUG_CHECKER_RENDER
 	uint8_t* dbg = plat_gfx_get_debug_frame();
 	if (dbg)
 	{
@@ -1975,6 +1988,7 @@ FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 
 		dbg[dbg_idx + 3] = 255;
 	}
+#endif
 
 	return checker;
 }
