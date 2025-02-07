@@ -155,7 +155,7 @@ FORCE_INLINE float Fixed28_4ToFloat(fixed28_4 v) { return v * (1.0f / 16.0f); }
 FORCE_INLINE fixed16_16 FloatToFixed16_16(float v) { return (fixed16_16)(v * 65536.0f); }
 FORCE_INLINE float Fixed16_16ToFloat(fixed16_16 v) { return v * (1.0f / 65536.0f); }
 
-inline int Ceil28_4(fixed28_4 Value)
+static inline int Ceil28_4(fixed28_4 Value)
 {
 	int res;
 	int numerator = Value - 1 + 16;
