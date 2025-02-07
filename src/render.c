@@ -1186,7 +1186,7 @@ typedef struct raster_halfspace_state_t
 	float u_00, u_10, u_01, u_11, u_02, u_12;
 	float v_00, v_10, v_01, v_11, v_02, v_12;
 
-	float dxu, dxv, dyu, dyv;
+	float dudx, dvdx, dudy, dvdy;
 
 	int cx1_10, cx2_10, cx3_10;
 	int cx1_01, cx2_01, cx3_01;
@@ -1360,10 +1360,10 @@ FORCE_INLINE int raster_halfspace_x_inner(const raster_halfspace_t* hs, raster_h
 	state->v_11 = (state->v_12 + state->v_10) * 0.5f;
 
 	// UV derivatives
-	state->dyu = state->u_01 - state->u_00;
-	state->dyv = state->v_01 - state->v_00;
-	state->dxu = state->u_10 - state->u_00;
-	state->dxv = state->v_10 - state->v_00;
+	state->dudx = state->u_01 - state->u_00;
+	state->dvdx = state->v_01 - state->v_00;
+	state->dudy = state->u_10 - state->u_00;
+	state->dvdy = state->v_10 - state->v_00;
 	return 0;
 }
 
@@ -1424,7 +1424,7 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		dbg.x = fract(u), dbg.y = fract(v);
 
 		// fractal UV
-		dbg.x = fract(uu), dbg.y = fract(vv);
+		//dbg.x = fract(uu), dbg.y = fract(vv);
 
 		// pattern
 		//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
@@ -1432,9 +1432,9 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		// bw
 		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
 
-		//dbg.x = debug_val * 5;
-		//dbg.y = -debug_val * 5;
-		//dbg.z = 0;
+		dbg.x = debug_val;
+		dbg.y = -debug_val;
+		dbg.z = 0;
 
 		const int offset = (y * SCREEN_X + x) * 4 + 0;
 		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
@@ -1527,7 +1527,7 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			// the average distance between dots.
 			// Note: simpler than upstream which calculates two frequency values
 			// based on singular value decomposition of derivatives.
-			float spacing = (fabsf(state.dxu) + fabsf(state.dxv) + fabsf(state.dyu) + fabsf(state.dyv)) * 0.25f;
+			float spacing = (fabsf(state.dudx) + fabsf(state.dvdx) + fabsf(state.dudy) + fabsf(state.dvdy)) * 0.25f;
 			spacing *= spacingMul;
 
 			int patternScaleLevel_i;
@@ -1541,8 +1541,8 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			const int mask_1 = 1 << (7 - ((state.x + 1) & 7));
 
 			//const float dbg = state.dxu;
-			//const float dbg = state.dyu;
-			const float dbg = state.dxv;
+			const float dbg = state.dvdx * 20;
+			//const float dbg = state.dxv;
 			//float dbg = spacing;
 			if (state.inside_00)
 			{
