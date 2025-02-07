@@ -96,6 +96,13 @@ else()
 
 	set_property(TARGET ${PLAYDATE_GAME_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+	if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND MSVC)
+		target_compile_options(${PLAYDATE_GAME_NAME} PRIVATE
+			/fsanitize=address
+		)
+	endif()
+
+
 	# Enable debug symbols (RelWithDebInfo is not only that; it also turns on
 	# incremental linking, disables some inlining, etc. etc.)
 	if (CMAKE_BUILD_TYPE STREQUAL "Release" AND MSVC)
