@@ -35,9 +35,9 @@ static Mesh g_mesh_TestPlane = { 4, g_mesh_TestPlane_vb, 2, g_mesh_TestPlane_ib,
 
 static Scene s_scene;
 
-static bool s_draw_test = true;
+static bool s_draw_test = false;
 static bool s_draw_wire = false;
-static enum DrawStyle s_draw_style = Draw_Checker_HeckerSub;
+static enum DrawStyle s_draw_style = Draw_Checker_Scanline;
 static float s_cam_dist = 8.0f;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))
@@ -197,6 +197,14 @@ void fx_meshes_update()
 		tr = xform_multiply(&tr, &rrr);
 		tr.y = -0.3f;
 		tr.x = -0.5f;
+		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
+
+		tr = xform_make_axis_angle(M_PIf * -0.8f, f3(0, 0, 1));
+		//rrr = xform_make_axis_angle(M_PIf * 0.3f, f3(0, 1, 0));
+		//tr = xform_multiply(&tr, &rrr);
+		tr.y = 0.3f;
+		tr.x = -2.0f;
+		tr.z = 2;
 		scene_drawMesh(&s_scene, G.framebuffer, G.framebuffer_stride, &g_mesh_TestPlane, &tr, s_draw_style, s_draw_wire);
 
 		// top right area, adjoining triangles in various configuration; should be no gaps and no double raster

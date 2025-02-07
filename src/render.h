@@ -52,16 +52,10 @@ enum DrawStyle {
 	// 24ms no bluenoise screen buffer; use the bluenoise thresholding directly in rasterizer
 	Draw_Bluenoise,
 
-	// 35ms device, 0.46mc PC
+	// 34ms device, 0.43ms PC, based on Chris Hecker's fx_fl_sub, write 32 pixels
 	Draw_Checker_Scanline,
 
-	// 42ms device, fl_fl_div, write 32 pixels
-	Draw_Checker_Hecker,
-	// 34ms, fx_fl_sub, write each bit
-	// 34ms, fx_fl_sub, write 32 pixels
-	Draw_Checker_HeckerSub,
-
-	// 53ms device halfspace
+	// 53ms device, 0.81ms PC, halfspace
 	Draw_Checker_Halfspace,
 
 	Draw_Dither3D_Scanline, // wrong/incorrect right now
