@@ -529,6 +529,7 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 			ui &= 63;
 			vi &= 63;
 			bool checker = (ui > 31) != (vi > 31);
+			//checker = true;
 
 #if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
@@ -639,17 +640,6 @@ typedef struct gradients_fl_fl {
 	float dVOverZdX, dVOverZdY;		// d(v/z)/dX, d(v/z)/dY
 } gradients_fl_fl;
 
-typedef struct gradients_fx_fl_a {
-	float aOneOverZ[3];				// 1/z for each vertex
-	float aUOverZ[3];				// u/z for each vertex
-	float aVOverZ[3];				// v/z for each vertex
-	float dOneOverZdX, dOneOverZdY;	// d(1/z)/dX, d(1/z)/dY
-	float dUOverZdX, dUOverZdY;		// d(u/z)/dX, d(u/z)/dY
-	float dVOverZdX, dVOverZdY;		// d(v/z)/dX, d(v/z)/dY
-	fixed16_16 dUdXModifier;
-	fixed16_16 dVdXModifier;
-} gradients_fx_fl_a;
-
 static void gradients_fl_fl_init(gradients_fl_fl* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
 {
 	float OneOverdX = 1 / (((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y)));
@@ -702,86 +692,6 @@ static void gradients_fl_fl_init(gradients_fl_fl* t, const float3* p0, const flo
 			(p1->x - p2->x)));
 }
 
-static void gradients_fx_fl_a_init(gradients_fx_fl_a* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
-{
-	float OneOverdX = 1 / (((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y)));
-	float OneOverdY = -OneOverdX;
-
-	{
-		float const OneOverZ = 1 / p0->z;
-		t->aOneOverZ[0] = OneOverZ;
-		t->aUOverZ[0] = uvs[0] * OneOverZ;
-		t->aVOverZ[0] = uvs[1] * OneOverZ;
-	}
-	{
-		float const OneOverZ = 1 / p1->z;
-		t->aOneOverZ[1] = OneOverZ;
-		t->aUOverZ[1] = uvs[2] * OneOverZ;
-		t->aVOverZ[1] = uvs[3] * OneOverZ;
-	}
-	{
-		float const OneOverZ = 1 / p2->z;
-		t->aOneOverZ[2] = OneOverZ;
-		t->aUOverZ[2] = uvs[4] * OneOverZ;
-		t->aVOverZ[2] = uvs[5] * OneOverZ;
-	}
-
-	t->dOneOverZdX = OneOverdX * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
-		(p0->y - p2->y)) -
-		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
-			(p1->y - p2->y)));
-	t->dOneOverZdY = OneOverdY * (((t->aOneOverZ[1] - t->aOneOverZ[2]) *
-		(p0->x - p2->x)) -
-		((t->aOneOverZ[0] - t->aOneOverZ[2]) *
-			(p1->x - p2->x)));
-
-	t->dUOverZdX = OneOverdX * (((t->aUOverZ[1] - t->aUOverZ[2]) *
-		(p0->y - p2->y)) -
-		((t->aUOverZ[0] - t->aUOverZ[2]) *
-			(p1->y - p2->y)));
-	t->dUOverZdY = OneOverdY * (((t->aUOverZ[1] - t->aUOverZ[2]) *
-		(p0->x - p2->x)) -
-		((t->aUOverZ[0] - t->aUOverZ[2]) *
-			(p1->x - p2->x)));
-
-	t->dVOverZdX = OneOverdX * (((t->aVOverZ[1] - t->aVOverZ[2]) *
-		(p0->y - p2->y)) -
-		((t->aVOverZ[0] - t->aVOverZ[2]) *
-			(p1->y - p2->y)));
-	t->dVOverZdY = OneOverdY * (((t->aVOverZ[1] - t->aVOverZ[2]) *
-		(p0->x - p2->x)) -
-		((t->aVOverZ[0] - t->aVOverZ[2]) *
-			(p1->x - p2->x)));
-
-	// set up rounding modifiers
-
-	fixed16_16 const Half = 0x8000;
-	fixed16_16 const PosModifier = Half;
-	fixed16_16 const NegModifier = Half - 1;
-
-	float dUdXIndicator = t->dUOverZdX * t->aOneOverZ[0] - t->aUOverZ[0] * t->dOneOverZdX;
-	if (dUdXIndicator > 0)
-		t->dUdXModifier = PosModifier;
-	else if (dUdXIndicator < 0)
-		t->dUdXModifier = NegModifier;
-	else // dUdX == 0
-	{		
-		float dUdYIndicator = t->dUOverZdY * t->aOneOverZ[0] - t->aUOverZ[0] * t->dOneOverZdY;
-		t->dUdXModifier = (dUdYIndicator >= 0) ? PosModifier : NegModifier;
-	}
-
-	float dVdXIndicator = t->dVOverZdX * t->aOneOverZ[0] - t->aVOverZ[0] * t->dOneOverZdX;
-	if (dVdXIndicator > 0)
-		t->dVdXModifier = PosModifier;
-	else if (dVdXIndicator < 0)
-		t->dVdXModifier = NegModifier;
-	else // dVdX == 0
-	{		
-		float dVdYIndicator = t->dVOverZdY * t->aOneOverZ[0] - t->aVOverZ[0] * t->dOneOverZdY;
-		t->dVdXModifier = (dVdYIndicator >= 0) ? PosModifier : NegModifier;
-	}
-}
-
 typedef struct edge_fl_fl {
 	float X, XStep;					// fractional x and dX/dY
 	int Y, Height;					// current y and vertical count
@@ -828,11 +738,12 @@ static void edge_fl_fl_init(edge_fl_fl* t, const gradients_fl_fl* gradients, con
 	t->VOverZStep = t->XStep * gradients->dVOverZdX + gradients->dVOverZdY;
 }
 
-static void edge_fx_fl_a_init(edge_fx_fl_a* t, const gradients_fx_fl_a* gradients, const float3* p0, const float3* p1, const float3* p2, int top, int bottom)
+static void edge_fx_fl_a_init(edge_fx_fl_a* t, const gradients_fl_fl* gradients, const float3* p0, const float3* p1, const float3* p2, int top, int bottom)
 {
 	float3 vertTop = top == 0 ? *p0 : (top == 1 ? *p1 : *p2);
 	float3 vertBottom = bottom == 0 ? *p0 : (bottom == 1 ? *p1 : *p2);
-	fixed28_4 topYfx = FloatToFixed28_4(vertTop.y), botYfx = FloatToFixed28_4(vertBottom.y);
+	fixed28_4 topXfx = FloatToFixed28_4(vertTop.x - 0.5f), botXfx = FloatToFixed28_4(vertBottom.x - 0.5f);
+	fixed28_4 topYfx = FloatToFixed28_4(vertTop.y - 0.5f), botYfx = FloatToFixed28_4(vertBottom.y - 0.5f);
 	t->Y = Ceil28_4(topYfx);
 	int YEnd = Ceil28_4(botYfx);
 	t->Height = YEnd - t->Y;
@@ -841,15 +752,15 @@ static void edge_fx_fl_a_init(edge_fx_fl_a* t, const gradients_fx_fl_a* gradient
 	if (t->Height)
 	{
 		fixed28_4 dN = botYfx - topYfx;
-		fixed28_4 dM = FloatToFixed28_4(vertBottom.x - vertTop.x);
+		fixed28_4 dM = botXfx - topXfx;
 
-		fixed28_4 InitialNumerator = dM * 16 * t->Y - dM * FloatToFixed28_4(vertTop.y) + dN * FloatToFixed28_4(vertTop.x) - 1 + dN * 16;
+		fixed28_4 InitialNumerator = dM * 16 * t->Y - dM * topYfx + dN * topXfx - 1 + dN * 16;
 		FloorDivMod(InitialNumerator, dN * 16, &t->X, &t->ErrorTerm);
 		FloorDivMod(dM * 16, dN * 16, &t->XStep, &t->Numerator);
 		t->Denominator = dN * 16;
 
-		float YPrestep = Fixed28_4ToFloat(t->Y * 16 - FloatToFixed28_4(vertTop.y));
-		float XPrestep = Fixed28_4ToFloat(t->X * 16 - FloatToFixed28_4(vertTop.x));
+		float YPrestep = Fixed28_4ToFloat(t->Y * 16 - topYfx);
+		float XPrestep = Fixed28_4ToFloat(t->X * 16 - topXfx);
 
 		t->OneOverZ = gradients->aOneOverZ[top] + YPrestep * gradients->dOneOverZdY + XPrestep * gradients->dOneOverZdX;
 		t->OneOverZStep = t->XStep * gradients->dOneOverZdX + gradients->dOneOverZdY;
@@ -916,6 +827,7 @@ static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* 
 		int V = (int)(VOverZ * Z * 64 * 5);
 
 		bool checker = ((U & 63) >= 32) != ((V & 63) >= 32);
+		//checker = true;
 		int bit_mask = 1 << (7 - (X & 7));
 		if (checker)
 			bitmap[X / 8] &= ~bit_mask;
@@ -946,7 +858,7 @@ static void DrawScanLine(uint8_t* bitmap, int rowstride, const gradients_fl_fl* 
 	}
 }
 
-static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx_fl_a* Gradients, edge_fx_fl_a* pLeft, edge_fx_fl_a* pRight)
+static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fl_fl* Gradients, edge_fx_fl_a* pLeft, edge_fx_fl_a* pRight)
 {
 	if (pLeft->Y < 0 || pLeft->Y >= SCREEN_Y)
 		return;
@@ -1012,10 +924,11 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 
 		for (int Counter = 0; Counter < AffineLength; Counter++)
 		{
-			int UInt = (U * 5 * 64 + Gradients->dUdXModifier) >> 16;
-			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
+			int UInt = (U * 5 * 64) >> 16;
+			int VInt = (V * 5 * 64) >> 16;
 
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			//checker = true;
 
 			mask |= 0x80000000u >> (X & 31);
 			uint32_t texpix = checker ? 0x0 : 0x80;
@@ -1031,8 +944,8 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			if (dbg)
 			{
 				int dbg_idx = (pLeft->Y * SCREEN_X + X) * 4;
-				int ui = ((U * 64 + Gradients->dUdXModifier) >> 16) & 63;
-				int vi = ((V * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				int ui = ((U * 64) >> 16) & 63;
+				int vi = ((V * 64) >> 16) & 63;
 				dbg[dbg_idx + 0] += checker ? 250 : 0;
 				dbg[dbg_idx + 1] += ui * 4;
 				dbg[dbg_idx + 2] += vi * 4;
@@ -1079,10 +992,11 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 
 		for (int Counter = 0; Counter <= WidthModLength; Counter++)
 		{
-			int UInt = (U * 5 * 64 + Gradients->dUdXModifier) >> 16;
-			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
+			int UInt = (U * 5 * 64) >> 16;
+			int VInt = (V * 5 * 64) >> 16;
 
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			//checker = true;
 
 			mask |= 0x80000000u >> (X & 31);
 			uint32_t texpix = checker ? 0x0 : 0x80;
@@ -1098,8 +1012,8 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			if (dbg)
 			{
 				int dbg_idx = (pLeft->Y * SCREEN_X + X) * 4;
-				int ui = ((U * 64 + Gradients->dUdXModifier) >> 16) & 63;
-				int vi = ((V * 64 + Gradients->dUdXModifier) >> 16) & 63;
+				int ui = ((U * 64) >> 16) & 63;
+				int vi = ((V * 64) >> 16) & 63;
 				dbg[dbg_idx + 0] += checker ? 250 : 0;
 				dbg[dbg_idx + 1] += ui * 4;
 				dbg[dbg_idx + 2] += vi * 4;
@@ -1250,8 +1164,8 @@ static void draw_triangle_checker_heckersub(uint8_t* bitmap, int rowstride, cons
 		}
 	}
 
-	gradients_fx_fl_a Gradients;
-	gradients_fx_fl_a_init(&Gradients, p0, p1, p2, uvs);
+	gradients_fl_fl Gradients;
+	gradients_fl_fl_init(&Gradients, p0, p1, p2, uvs);
 	edge_fx_fl_a TopToBottom;
 	edge_fx_fl_a TopToMiddle;
 	edge_fx_fl_a MiddleToBottom;
@@ -2003,6 +1917,7 @@ FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 	float uu = fract(u * 5.0f);
 	float vv = fract(v * 5.0f);
 	bool checker = (uu > 0.5f) != (vv > 0.5f);
+	//checker = true;
 
 #if DEBUG_CHECKER_RENDER
 	uint8_t* dbg = plat_gfx_get_debug_frame();
