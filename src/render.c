@@ -9,11 +9,9 @@
 
 // Parts of the scanline rasterizer are originally based on:
 // - mini3d from Playdate SDK examples. Created by Dave Hayden on 10/20/15. Copyright © 2015 Panic, Inc. All rights reserved.
-// - mini3d-plus, https://github.com/nstbayless/mini3d-plus, MIT license
 
 
-static inline void
-_drawMaskPattern(uint32_t* p, uint32_t mask, uint32_t color)
+FORCE_INLINE void _drawMaskPattern(uint32_t* p, uint32_t mask, uint32_t color)
 {
 	if ( mask == 0xffffffff )
 		*p = color;
@@ -139,268 +137,6 @@ void drawLine(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2
 		x1 += dx;
 	}
 }
-
-// --------------------------------------------------------------------------
-// Classical scan-line rasterizer, based on Playdate SDK mini3d-plus and Github mini3d-plus
-
-static inline void sortTri_t(const float3** p1, const float3** p2, const float3** p3, float2* t1, float2* t2, float2* t3)
-{
-	float y1 = (*p1)->y, y2 = (*p2)->y, y3 = (*p3)->y;
-
-	if (y1 <= y2 && y1 < y3)
-	{
-		if (y3 < y2) // 1,3,2
-		{
-			const float3* tmp = *p2;
-			float2 tmpt = *t2;
-			*p2 = *p3; *t2 = *t3;
-			*p3 = tmp; *t3 = tmpt;
-		}
-	}
-	else if (y2 < y1 && y2 < y3)
-	{
-		const float3* tmp = *p1;
-		float2 tmpt = *t1;
-		*p1 = *p2; *t1 = *t2;
-
-		if (y3 < y1) // 2,3,1
-		{
-			*p2 = *p3; *t2 = *t3;
-			*p3 = tmp; *t3 = tmpt;
-		}
-		else // 2,1,3
-		{
-			*p2 = tmp; *t2 = tmpt;
-		}
-	}
-	else
-	{
-		const float3* tmp = *p1;
-		float2 tmpt = *t1;
-		*p1 = *p3; *t1 = *t3;
-
-		if (y1 < y2) // 3,1,2
-		{
-			*p3 = *p2; *t3 = *t2;
-			*p2 = tmp; *t2 = tmpt;
-		}
-		else // 3,2,1
-		{
-			*p3 = tmp; *t3 = tmpt;
-		}
-	}
-}
-
-#define UV_SHIFT 21
-#define W_SHIFT 28
-
-typedef struct raster_scanline_t
-{
-	// These are used in the scanline inner loop
-	int x, endx; // in pixels: current position, end position of the scanline
-	int u, v, w; // current U, V, W (1/Z) in fixed point
-	int dudx, dvdx, dwdx; // u, v, w steps in x direction
-
-	// These are used in the vertical loop
-	int y, y2, y3; // in pixels: current position; middle/bottom rows
-	bool part_12; // we are processing y1-y2 part currently
-	int x1row, x2row, urow, vrow, wrow;
-
-	int dx1, dx2, dudy, dvdy, dwdy;
-
-	int sb, sc;
-
-	float w1, w2, w3;
-	float u1, v1, u2, v2, u3, v3;
-
-	// Triangle vertices
-	const float3* p1;
-	const float3* p2;
-	const float3* p3;
-	// Triangle UVs
-	float2 t1, t2, t3;
-} raster_scanline_t;
-
-FORCE_INLINE bool raster_scanline_begin(raster_scanline_t* hs, const float3* pos1, const float3* pos2, const float3* pos3, const float uvs[6], float texDimPowerOfTwo)
-{
-	hs->p1 = pos1, hs->p2 = pos2, hs->p3 = pos3;
-	hs->t1 = (float2){ uvs[0], uvs[1] };
-	hs->t2 = (float2){ uvs[2], uvs[3] };
-	hs->t3 = (float2){ uvs[4], uvs[5] };
-	// Order vertices so that p1 is at top, p2 in the middle, p3 at the bottom
-	sortTri_t(&hs->p1, &hs->p2, &hs->p3, &hs->t1, &hs->t2, &hs->t3);
-
-	const int y1 = (int)hs->p1->y;
-	hs->y2 = (int)hs->p2->y;
-	hs->y3 = (int)hs->p3->y;
-	if (y1 >= SCREEN_Y || hs->y3 < 0)
-		return false; // triangle outside of Y range
-
-	int det = (int)((pos3->x - pos1->x) * (pos2->y - pos1->y) - (pos2->x - pos1->x) * (pos3->y - pos1->y));
-	if (det == 0)
-		return false; // zero area
-
-	hs->y2 = min2(SCREEN_Y, hs->y2);
-	hs->y3 = min2(SCREEN_Y, hs->y3);
-	hs->y = y1;
-	hs->part_12 = true;
-
-	// scale UVs to texture size
-	hs->t1.x *= texDimPowerOfTwo; hs->t1.y *= texDimPowerOfTwo;
-	hs->t2.x *= texDimPowerOfTwo; hs->t2.y *= texDimPowerOfTwo;
-	hs->t3.x *= texDimPowerOfTwo; hs->t3.y *= texDimPowerOfTwo;
-
-	hs->x1row = (int)(hs->p1->x * (1 << 16));
-	hs->x2row = hs->x1row;
-
-	hs->sb = slope(hs->p1->x, hs->p1->y, hs->p2->x, hs->p2->y, 16);
-	hs->sc = slope(hs->p1->x, hs->p1->y, hs->p3->x, hs->p3->y, 16);
-
-	hs->dx1 = min2(hs->sb, hs->sc);
-	hs->dx2 = max2(hs->sb, hs->sc);
-
-	hs->w1 = 1.0f / hs->p1->z;
-	hs->w2 = 1.0f / hs->p2->z;
-	hs->w3 = 1.0f / hs->p3->z;
-	hs->u1 = hs->t1.x * hs->w1;
-	hs->v1 = hs->t1.y * hs->w1;
-	hs->u2 = hs->t2.x * hs->w2;
-	hs->v2 = hs->t2.y * hs->w2;
-	hs->u3 = hs->t3.x * hs->w3;
-	hs->v3 = hs->t3.y * hs->w3;
-
-	const float inv_dy31 = 1.0f / (hs->p3->y - hs->p1->y);
-	const float dy21 = hs->p2->y - hs->p1->y;
-	const float mx = hs->p1->x + dy21 * (hs->p3->x - hs->p1->x) * inv_dy31;
-	const float mu = hs->u1 + dy21 * (hs->u3 - hs->u1) * inv_dy31;
-	const float mv = hs->v1 + dy21 * (hs->v3 - hs->v1) * inv_dy31;
-	const float mw = hs->w1 + dy21 * (hs->w3 - hs->w1) * inv_dy31;
-
-	if (hs->sc < hs->sb)
-	{
-		hs->dudx = slope(mu, mx, hs->u2, hs->p2->x, UV_SHIFT);
-		hs->dudy = slope(hs->u1, hs->p1->y, hs->u3, hs->p3->y, UV_SHIFT);
-		hs->dvdx = slope(mv, mx, hs->v2, hs->p2->x, UV_SHIFT);
-		hs->dvdy = slope(hs->v1, hs->p1->y, hs->v3, hs->p3->y, UV_SHIFT);
-		hs->dwdx = slope(mw, mx, hs->w2, hs->p2->x, W_SHIFT);
-		hs->dwdy = slope(hs->w1, hs->p1->y, hs->w3, hs->p3->y, W_SHIFT);
-	}
-	else
-	{
-		hs->dudx = slope(hs->u2, hs->p2->x, mu, mx, UV_SHIFT);
-		hs->dudy = slope(hs->u1, hs->p1->y, hs->u2, hs->p2->y, UV_SHIFT);
-		hs->dvdx = slope(hs->v2, hs->p2->x, mv, mx, UV_SHIFT);
-		hs->dvdy = slope(hs->v1, hs->p1->y, hs->v2, hs->p2->y, UV_SHIFT);
-		hs->dwdx = slope(hs->w2, hs->p2->x, mw, mx, W_SHIFT);
-		hs->dwdy = slope(hs->w1, hs->p1->y, hs->w2, hs->p2->y, W_SHIFT);
-	}
-
-	hs->urow = (int)(hs->u1 * (1 << UV_SHIFT));
-	hs->vrow = (int)(hs->v1 * (1 << UV_SHIFT));
-	hs->wrow = (int)(hs->w1 * (1 << W_SHIFT));
-	return true;
-}
-
-static void switch_to_part_23(raster_scanline_t *hs)
-{
-	assert(hs->part_12);
-	hs->part_12 = false;
-
-	int new_dx = slope(hs->p2->x, hs->p2->y, hs->p3->x, hs->p3->y, 16);
-	if (hs->sb < hs->sc)
-	{
-		hs->x1row = (int)(hs->p2->x * (1 << 16));
-		hs->dx1 = new_dx;
-		hs->urow = (int)(hs->u2 * (1 << UV_SHIFT));
-		hs->vrow = (int)(hs->v2 * (1 << UV_SHIFT));
-		hs->wrow = (int)(hs->w2 * (1 << W_SHIFT));
-		hs->dudy = slope(hs->u2, hs->p2->y, hs->u3, hs->p3->y, UV_SHIFT);
-		hs->dvdy = slope(hs->v2, hs->p2->y, hs->v3, hs->p3->y, UV_SHIFT);
-		hs->dwdy = slope(hs->w2, hs->p2->y, hs->w3, hs->p3->y, W_SHIFT);
-	}
-	else
-	{
-		hs->x2row = (int)(hs->p2->x * (1 << 16));
-		hs->dx2 = new_dx;
-	}
-}
-
-FORCE_INLINE bool raster_scanline_y_continue(raster_scanline_t* hs)
-{
-	if (hs->part_12 && hs->y == hs->y2)
-	{
-		switch_to_part_23(hs);
-	}
-	const int cur_y_end = hs->part_12 ? hs->y2 : hs->y3;
-	if (cur_y_end < 0)
-	{
-		assert(hs->part_12);
-		int dy = cur_y_end - hs->y;
-		hs->x1row += dy * hs->dx1;
-		hs->x2row += dy * hs->dx2;
-		hs->urow += dy * hs->dudy;
-		hs->vrow += dy * hs->dvdy;
-		hs->wrow += dy * hs->dwdy;
-		hs->y = cur_y_end;
-		switch_to_part_23(hs);
-	}
-	if (hs->y < 0)
-	{
-		hs->x1row -= hs->y * hs->dx1;
-		hs->x2row -= hs->y * hs->dx2;
-		hs->urow -= hs->y * hs->dudy;
-		hs->vrow -= hs->y * hs->dvdy;
-		hs->wrow -= hs->y * hs->dwdy;
-		hs->y = 0;
-	}
-
-	return hs->y < hs->y3;
-}
-
-FORCE_INLINE void raster_scanline_y_step(raster_scanline_t* hs)
-{
-	hs->x1row += hs->dx1;
-	hs->x2row += hs->dx2;
-	hs->urow += hs->dudy;
-	hs->vrow += hs->dvdy;
-	hs->wrow += hs->dwdy;
-	hs->y++;
-}
-
-FORCE_INLINE void raster_scanline_x_begin(raster_scanline_t* hs)
-{
-	const int x1 = hs->x1row >> 16;
-	hs->endx = (hs->x2row >> 16) + 1;
-	hs->x = x1;
-	hs->u = hs->urow;
-	hs->v = hs->vrow;
-	hs->w = hs->wrow;
-
-	hs->endx = min2(hs->endx, SCREEN_X);
-
-	if (hs->x < 0)
-	{
-		hs->u -= hs->x * hs->dudx;
-		hs->v -= hs->x * hs->dvdx;
-		hs->w -= hs->x * hs->dwdx;
-		hs->x = 0;
-	}
-}
-
-FORCE_INLINE bool raster_scanline_x_continue(raster_scanline_t* hs)
-{
-	return hs->x < hs->endx;
-}
-
-FORCE_INLINE void raster_scanline_x_step(raster_scanline_t* hs)
-{
-	hs->u += hs->dudx;
-	hs->v += hs->dvdx;
-	hs->w += hs->dwdx;
-	hs->x++;
-}
-
-#define DEBUG_CHECKER_RENDER 0
 
 // --------------------------------------------------------------------------
 // Based on Chris Hecker's "Perspective Texture Mapping" series (1995-1996)
@@ -718,108 +454,6 @@ FORCE_INLINE void raster_scanline_rem_begin(raster_scanline_line_t* line, const 
 	}
 }
 
-static void draw_scanline_checker(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge_uv* edge_l, const tri_edge_uv* edge_r)
-{
-	raster_scanline_line_t line;
-	if (!raster_scanline_line_init(&line, grad, edge_l, edge_r))
-		return;
-
-	int X = line.x_start;
-
-	bitmap += edge_l->Y * rowstride;
-	// write out pixels 32 at a time
-	uint32_t mask = 0;
-	uint32_t* p = (uint32_t*)bitmap + X / 32;
-	uint32_t color = 0;
-
-	while (raster_scanline_spans_continue(&line))
-	{
-		raster_scanline_inner_begin(&line);
-		for (int i = 0; i < kAffineLength; i++)
-		{
-			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
-			//checker = true;
-
-			mask |= 0x80000000u >> (X & 31);
-			uint32_t texpix = checker ? 0x0 : 0x80;
-			color |= (texpix << 24) >> (X % 32);
-			//int bit_mask = 1 << (7 - (X & 7));
-			//if (checker)
-			//	bitmap[X / 8] &= ~bit_mask;
-			//else
-			//	bitmap[X / 8] |= bit_mask;
-
-#if DEBUG_CHECKER_RENDER
-			uint8_t* dbg = plat_gfx_get_debug_frame();
-			if (dbg)
-			{
-				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
-				dbg[dbg_idx + 0] += checker ? 250 : 0;
-				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
-				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
-				dbg[dbg_idx + 3] = 255;
-			}
-#endif
-
-			X++;
-			raster_scanline_inner_step(&line);
-
-			if (X % 32 == 0)
-			{
-				_drawMaskPattern(p++, swap(mask), swap(color));
-				mask = 0;
-				color = 0;
-			}
-		}
-
-		raster_scanline_spans_step(&line);
-	}
-
-	if (raster_scanline_has_rem(&line))
-	{
-		raster_scanline_rem_begin(&line, grad, edge_r);
-
-		for (int i = 0; i <= line.aff_remainder; i++)
-		{
-			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
-			//checker = true;
-
-			mask |= 0x80000000u >> (X & 31);
-			uint32_t texpix = checker ? 0x0 : 0x80;
-			color |= (texpix << 24) >> (X % 32);
-
-			//int bit_mask = 1 << (7 - (X & 7));
-			//if (checker)
-			//	bitmap[X / 8] &= ~bit_mask;
-			//else
-			//	bitmap[X / 8] |= bit_mask;
-#if DEBUG_CHECKER_RENDER
-			uint8_t* dbg = plat_gfx_get_debug_frame();
-			if (dbg)
-			{
-				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
-				dbg[dbg_idx + 0] += checker ? 250 : 0;
-				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
-				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
-				dbg[dbg_idx + 3] = 255;
-			}
-#endif
-
-			X++;
-			raster_scanline_inner_step(&line);
-
-			if (X % 32 == 0)
-			{
-				_drawMaskPattern(p++, swap(mask), swap(color));
-				mask = 0;
-				color = 0;
-			}
-		}
-	}
-
-	_drawMaskPattern(p, swap(mask), swap(color));
-}
-
 static bool tri_sort_vertices(const float3* p0, const float3* p1, const float3* p2, int* r_top, int* r_mid, int* r_bottom)
 {
 	int v_mid_cmp, v_bot_cmp;
@@ -983,7 +617,7 @@ FORCE_INLINE void raster_scanline_uv_y_step(raster_scanline_uv_t* st)
 
 // --------------------------------------------------------------------------
 
-FORCE_INLINE draw_scanline_pattern(uint8_t* bitmap, int rowstride, const tri_edge* edge_l, const tri_edge* edge_r, const uint8_t* pattern)
+FORCE_INLINE void draw_scanline_pattern(uint8_t* bitmap, int rowstride, const tri_edge* edge_l, const tri_edge* edge_r, const uint8_t* pattern)
 {
 	int x = max2(0, edge_l->X);
 	int endx = min2(SCREEN_X, edge_r->X);
@@ -1098,25 +732,6 @@ static void draw_triangle_bluenoise_scanline(uint8_t* bitmap, int rowstride, con
 		raster_scanline_simple_y_step(&tri);
 	}
 }
-
-static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
-{
-	raster_scanline_uv_t tri;
-	if (!raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 5.0f))
-		return;
-
-	int height = raster_scanline_uv_begin1(&tri);
-	while (height--) {
-		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
-		raster_scanline_uv_y_step(&tri);
-	}
-	height = raster_scanline_uv_begin2(&tri);
-	while (height--) {
-		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
-		raster_scanline_uv_y_step(&tri);
-	}
-}
-
 
 
 // --------------------------------------------------------------------------
@@ -1424,17 +1039,17 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		dbg.x = fract(u), dbg.y = fract(v);
 
 		// fractal UV
-		//dbg.x = fract(uu), dbg.y = fract(vv);
+		dbg.x = fract(uu), dbg.y = fract(vv);
 
 		// pattern
-		//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+		dbg.x = dbg.y = dbg.z = pattern / 255.0f;
 
 		// bw
 		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
 
-		dbg.x = debug_val;
-		dbg.y = -debug_val;
-		dbg.z = 0;
+		//dbg.x = debug_val;
+		//dbg.y = -debug_val;
+		//dbg.z = 0;
 
 		const int offset = (y * SCREEN_X + x) * 4 + 0;
 		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
@@ -1540,10 +1155,12 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			const int mask_0 = 1 << (7 - ((state.x + 0) & 7));
 			const int mask_1 = 1 << (7 - ((state.x + 1) & 7));
 
-			//const float dbg = state.dxu;
-			const float dbg = state.dvdx * 20;
-			//const float dbg = state.dxv;
-			//float dbg = spacing;
+			float dbg = 0.0f;
+			//dbg = state.dudx * 15;
+			//dbg = state.dvdx * 15;
+			//dbg = state.dudy * 15;
+			//dbg = state.dvdy * 15;
+			//dbg = spacing;
 			if (state.inside_00)
 			{
 				bool check = do_pixel_sample(state.u_00, state.v_00, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y, dbg);
@@ -1581,173 +1198,109 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 }
 
 
-static void DrawScanLine_dither3d(uint8_t* bitmap, int rowstride, const tri_gradients* grad, tri_edge_uv* edge_l, tri_edge_uv* edge_r, uint8_t compare_val, const float spacingMul)
+static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge_uv* edge_l, const tri_edge_uv* edge_r, const uint8_t compare_val, const float spacingMul)
 {
-	//@TODO
-	/*
-	if (edge_l->Y < 0 || edge_l->Y >= SCREEN_Y)
+	raster_scanline_line_t line;
+	if (!raster_scanline_line_init(&line, grad, edge_l, edge_r))
 		return;
 
-	int x_start = (int)ceilf(edge_l->X);
-	x_start = max2(0, x_start);
-	float x_prestep = x_start - edge_l->X;
-
+	int X = line.x_start;
 	bitmap += edge_l->Y * rowstride;
 
-	int x_end = (int)ceilf(edge_r->X);
-	x_end = min2(SCREEN_X, x_end);
-	int width = x_end - x_start;
+	// We need the vertical derivative inside the inner loop.
+	// Instead of doing it fully correctly, calculate du/dy and dv/dy at left and right edges,
+	// and just interpolate them across.
+	const float u0_left = edge_l->uz / edge_l->invz;
+	const float v0_left = edge_l->vz / edge_l->invz;
+	const float u1_left = (edge_l->uz + grad->uz_dy) / (edge_l->invz + grad->invz_dy);
+	const float v1_left = (edge_l->vz + grad->vz_dy) / (edge_l->invz + grad->invz_dy);
+	const float u0_right = edge_r->uz / edge_r->invz;
+	const float v0_right = edge_r->vz / edge_r->invz;
+	const float u1_right = (edge_r->uz + grad->uz_dy) / (edge_r->invz + grad->invz_dy);
+	const float v1_right = (edge_r->vz + grad->vz_dy) / (edge_r->invz + grad->invz_dy);
+	const float dudy_left = u1_left - u0_left;
+	const float dvdy_left = v1_left - v0_left;
+	const float dudy_right = u1_right - u0_right;
+	const float dvdy_right = v1_right - v0_right;
+	const float lerp_step = 1.0f / (line.x_end - line.x_start);
+	float lerper = 0.0f;
 
-	float invz = edge_l->invz + x_prestep * grad->invz_dx;
-	float uz = edge_l->uz + x_prestep * grad->uz_dx;
-	float vz = edge_l->vz + x_prestep * grad->vz_dx;
-
-	int X = x_start;
-	while (width-- > 0)
+	while (raster_scanline_spans_continue(&line))
 	{
-		float Z = 1 / invz;
-		float uu = uz * Z;
-		float vv = vz * Z;
+		raster_scanline_inner_begin(&line);
 
-		float uu_x = (uz + grad->uz_dx) / (invz + grad->invz_dx);
-		float vv_x = (vz + grad->vz_dx) / (invz + grad->invz_dx);
-		float uu_y = (uz + grad->uz_dy) / (invz + grad->invz_dy);
-		float vv_y = (vz + grad->vz_dy) / (invz + grad->invz_dy);
-		float dudx = uu_x - uu;
-		float dvdx = vv_x - vv;
-		float dudy = uu_y - uu;
-		float dvdy = vv_y - vv;
+		for (int i = 0; i < kAffineLength; i++)
+		{
+			float uu = Fixed16_16ToFloat(line.U);
+			float vv = Fixed16_16ToFloat(line.V);
+			float dudx = Fixed16_16ToFloat(line.dU);
+			float dvdx = Fixed16_16ToFloat(line.dV);
+			float dudy = lerp(dudy_left, dudy_right, lerper);
+			float dvdy = lerp(dvdy_left, dvdy_right, lerper);
+			lerper += lerp_step;
 
-		//float spacing = (fabsf(grad->uz_dx) + fabsf(grad->vz_dx) + fabsf(grad->uz_dy) + fabsf(grad->vz_dy)) * Z * 0.25f;
-		//float spacing = max2f(max2f(fabsf(grad->uz_dx), fabsf(grad->vz_dx)), max2f(fabsf(grad->uz_dy), fabsf(grad->vz_dy))) * Z;
-		//float spacing = min2f(min2f(fabsf(grad->uz_dx), fabsf(grad->vz_dx)), min2f(fabsf(grad->uz_dy), fabsf(grad->vz_dy))) * Z;
-		float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
-		spacing *= spacingMul;
-		int patternScaleLevel_i;
-		const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
+			float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
+			spacing *= spacingMul;
+			int patternScaleLevel_i;
+			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
+			float dbg = 0.0f;
+			//dbg = dudx * 15;
+			//dbg = dvdx * 15;
+			//dbg = dudy * 15;
+			//dbg = dvdy * 15;
+			//dbg = spacing;
+			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
+			int bit_mask = 1 << (7 - (X & 7));
+			if (check)
+				bitmap[X / 8] &= ~bit_mask;
+			else
+				bitmap[X / 8] |= bit_mask;
 
-		float dbg = 0.0f;
-		//dbg = grad->uz_dx * Z;
-		//dbg = grad->uz_dy * Z;
-		dbg = dvdx;
-		dbg = dvdy;
-		bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
-
-		int bit_mask = 1 << (7 - (X & 7));
-		if (check)
-			bitmap[X / 8] &= ~bit_mask;
-		else
-			bitmap[X / 8] |= bit_mask;
-
-		X++;
-		invz += grad->invz_dx;
-		uz += grad->uz_dx;
-		vz += grad->vz_dx;
-	}
-	*/
-}
-
-
-static void draw_triangle_dither3d_hecker(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const uint8_t brightness)
-{
-	// Lookup brightness to make dither output have correct output
-	// brightness at different input brightness values.
-	const uint8_t brightnessCurve = s_dither4x4_g[brightness / 4];
-	// Note: _SizeVariability fixed to default 0.0, following math simplified
-	const float brightnessSpacingMultiplier = 255.0f / (brightnessCurve * 2.0f + 0.001f);
-	// Scale the spacing by the specified input (power of two) scale.
-	// We keep the spacing the same regardless of whether we're using
-	// a pattern with more or less dots in it.
-	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
-	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
-
-
-	int v_top, v_mid, v_bottom, v_mid_cmp, v_bot_cmp;
-	float Y0 = p0->y, Y1 = p1->y, Y2 = p2->y;
-
-	// sort vertices in y
-	if (Y0 < Y1) {
-		if (Y2 < Y0) {
-			v_top = 2; v_mid = 0; v_bottom = 1;
-			v_mid_cmp = 0; v_bot_cmp = 1;
+			X++;
+			raster_scanline_inner_step(&line);
 		}
-		else {
-			v_top = 0;
-			if (Y1 < Y2) {
-				v_mid = 1; v_bottom = 2;
-				v_mid_cmp = 1; v_bot_cmp = 2;
-			}
-			else {
-				v_mid = 2; v_bottom = 1;
-				v_mid_cmp = 2; v_bot_cmp = 1;
-			}
+		raster_scanline_spans_step(&line);
+	}
+	if (raster_scanline_has_rem(&line))
+	{
+		raster_scanline_rem_begin(&line, grad, edge_r);
+		for (int i = 0; i <= line.aff_remainder; i++)
+		{
+			float uu = Fixed16_16ToFloat(line.U);
+			float vv = Fixed16_16ToFloat(line.V);
+			float dudx = Fixed16_16ToFloat(line.dU);
+			float dvdx = Fixed16_16ToFloat(line.dV);
+			float dudy = lerp(dudy_left, dudy_right, lerper);
+			float dvdy = lerp(dvdy_left, dvdy_right, lerper);
+			lerper += lerp_step;
+
+			float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
+			spacing *= spacingMul;
+			int patternScaleLevel_i;
+			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
+			float dbg = 0.0f;
+			//dbg = dudx * 15;
+			//dbg = dvdx * 15;
+			//dbg = dudy * 15;
+			//dbg = dvdy * 15;
+			//dbg = spacing;
+			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
+			int bit_mask = 1 << (7 - (X & 7));
+			if (check)
+				bitmap[X / 8] &= ~bit_mask;
+			else
+				bitmap[X / 8] |= bit_mask;
+
+			X++;
+			raster_scanline_inner_step(&line);
 		}
-	}
-	else {
-		if (Y2 < Y1) {
-			v_top = 2; v_mid = 1; v_bottom = 0;
-			v_mid_cmp = 1; v_bot_cmp = 0;
-		}
-		else {
-			v_top = 1;
-			if (Y0 < Y2) {
-				v_mid = 0; v_bottom = 2;
-				v_mid_cmp = 3; v_bot_cmp = 2;
-			}
-			else {
-				v_mid = 2; v_bottom = 0;
-				v_mid_cmp = 2; v_bot_cmp = 3;
-			}
-		}
-	}
-
-	tri_gradients grad;
-	tri_gradients_init(&grad, p0, p1, p2, uvs, 1.0f);
-	tri_edge_uv e_top_bottom;
-	tri_edge_uv e_top_mid;
-	tri_edge_uv e_mid_bottom;
-	tri_edge_uv_init(&e_top_bottom, &grad, p0, p1, p2, v_top, v_bottom);
-	tri_edge_uv_init(&e_top_mid, &grad, p0, p1, p2, v_top, v_mid);
-	tri_edge_uv_init(&e_mid_bottom, &grad, p0, p1, p2, v_mid, v_bottom);
-	tri_edge_uv* edge_l, * edge_r;
-	int MiddleIsLeft;
-
-	// the triangle is anti-clockwise, so if bottom > middle then middle is right
-	if (v_bot_cmp > v_mid_cmp) {
-		MiddleIsLeft = 0;
-		edge_l = &e_top_mid; edge_r = &e_top_bottom;
-	}
-	else {
-		MiddleIsLeft = 1;
-		edge_l = &e_top_bottom; edge_r = &e_top_mid;
-	}
-
-	int height = e_top_mid.height;
-
-	while (height--) {
-		DrawScanLine_dither3d(bitmap, rowstride, &grad, edge_l, edge_r, compare_val, spacingMul);
-		tri_edge_uv_step(&e_top_mid); tri_edge_uv_step(&e_top_bottom);
-	}
-
-	height = e_mid_bottom.height;
-
-	if (MiddleIsLeft) {
-		edge_l = &e_top_bottom; edge_r = &e_mid_bottom;
-	}
-	else {
-		edge_l = &e_mid_bottom; edge_r = &e_top_bottom;
-	}
-
-	while (height--) {
-		DrawScanLine_dither3d(bitmap, rowstride, &grad, edge_l, edge_r, compare_val, spacingMul);
-		tri_edge_uv_step(&e_mid_bottom); tri_edge_uv_step(&e_top_bottom);
 	}
 }
 
-static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
+static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const uint8_t brightness)
 {
-	raster_scanline_t hs;
-	if (!raster_scanline_begin(&hs, p1, p2, p3, uvs, 1.0f))
+	raster_scanline_uv_t tri;
+	if (!raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 1.0f))
 		return;
 
 	// Lookup brightness to make dither output have correct output
@@ -1761,69 +1314,140 @@ static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, cons
 	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
 	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
 
-	for (; raster_scanline_y_continue(&hs); raster_scanline_y_step(&hs))
+	int height = raster_scanline_uv_begin1(&tri);
+	while (height--) {
+		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, compare_val, spacingMul);
+		raster_scanline_uv_y_step(&tri);
+	}
+	height = raster_scanline_uv_begin2(&tri);
+	while (height--) {
+		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, compare_val, spacingMul);
+		raster_scanline_uv_y_step(&tri);
+	}
+}
+
+// --------------------------------------------------------------------------
+// Simple pure black/white checkerboard
+
+#define DEBUG_CHECKER_RENDER 0
+
+static void draw_scanline_checker(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge_uv* edge_l, const tri_edge_uv* edge_r)
+{
+	raster_scanline_line_t line;
+	if (!raster_scanline_line_init(&line, grad, edge_l, edge_r))
+		return;
+
+	int X = line.x_start;
+
+	bitmap += edge_l->Y * rowstride;
+	// write out pixels 32 at a time
+	uint32_t mask = 0;
+	uint32_t* p = (uint32_t*)bitmap + X / 32;
+	uint32_t color = 0;
+
+	while (raster_scanline_spans_continue(&line))
 	{
-		uint8_t* row = bitmap + hs.y * rowstride;
-		raster_scanline_x_begin(&hs);
-
-		// write out pixels 32 at a time
-		uint32_t mask = 0;
-		uint32_t* p = (uint32_t*)row + hs.x / 32;
-		uint32_t color = 0;
-
-		while (raster_scanline_x_continue(&hs))
+		raster_scanline_inner_begin(&line);
+		for (int i = 0; i < kAffineLength; i++)
 		{
-			mask |= 0x80000000u >> (hs.x & 31);
+			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
+			//checker = true;
 
-			// |1 to prevent floating point division error
-			const float inv_divisor = (1 << W_SHIFT) / (float)(hs.w | 1);
-			const float inv_divisor_x1 = (1 << W_SHIFT) / (float)((hs.w + hs.dwdx) | 1);
-			const float inv_divisor_y1 = (1 << W_SHIFT) / (float)((hs.w + hs.dwdy) | 1);
-
-			float uu = (float)hs.u / (1 << UV_SHIFT) * inv_divisor;
-			float vv = (float)hs.v / (1 << UV_SHIFT) * inv_divisor;
-
-			float uu_x1 = (float)(hs.u + hs.dudx) / (1 << UV_SHIFT) * inv_divisor_x1;
-			float vv_x1 = (float)(hs.v + hs.dvdx) / (1 << UV_SHIFT) * inv_divisor_x1;
-			float uu_y1 = (float)(hs.u + hs.dudy) / (1 << UV_SHIFT) * inv_divisor_y1;
-			float vv_y1 = (float)(hs.v + hs.dvdy) / (1 << UV_SHIFT) * inv_divisor_y1;
-
-			float spacing = (fabsf(uu_x1 - uu) + fabsf(vv_x1 - vv) + fabsf(uu_y1 - uu) + fabsf(vv_x1 - vv)) * 0.25f;
-			float dbg = uu_y1 - uu;
-
-			spacing *= spacingMul;
-			int patternScaleLevel_i;
-			int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
-
-
-			dbg = spacing;
-			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, hs.x, hs.y, dbg);
-
-			uint32_t texpix = check ? 0 : 0x80;
-			color |= (texpix << 24) >> (hs.x % 32);
-
-			//int bit_mask = 1 << (7 - (hs.x & 7));
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = checker ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
+			//int bit_mask = 1 << (7 - (X & 7));
 			//if (checker)
-			//	row[hs.x / 8] &= ~bit_mask;
+			//	bitmap[X / 8] &= ~bit_mask;
 			//else
-			//	row[hs.x / 8] |= bit_mask;
+			//	bitmap[X / 8] |= bit_mask;
 
-			raster_scanline_x_step(&hs);
+#if DEBUG_CHECKER_RENDER
+			uint8_t* dbg = plat_gfx_get_debug_frame();
+			if (dbg)
+			{
+				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
+				dbg[dbg_idx + 0] += checker ? 250 : 0;
+				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 3] = 255;
+			}
+#endif
 
-			if (hs.x % 32 == 0)
+			X++;
+			raster_scanline_inner_step(&line);
+
+			if (X % 32 == 0)
 			{
 				_drawMaskPattern(p++, swap(mask), swap(color));
 				mask = 0;
 				color = 0;
 			}
 		}
-
-		_drawMaskPattern(p, swap(mask), swap(color));
+		raster_scanline_spans_step(&line);
 	}
+
+	if (raster_scanline_has_rem(&line))
+	{
+		raster_scanline_rem_begin(&line, grad, edge_r);
+		for (int i = 0; i <= line.aff_remainder; i++)
+		{
+			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
+			//checker = true;
+
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = checker ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
+
+			//int bit_mask = 1 << (7 - (X & 7));
+			//if (checker)
+			//	bitmap[X / 8] &= ~bit_mask;
+			//else
+			//	bitmap[X / 8] |= bit_mask;
+#if DEBUG_CHECKER_RENDER
+			uint8_t* dbg = plat_gfx_get_debug_frame();
+			if (dbg)
+			{
+				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
+				dbg[dbg_idx + 0] += checker ? 250 : 0;
+				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 3] = 255;
+			}
+#endif
+
+			X++;
+			raster_scanline_inner_step(&line);
+
+			if (X % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
+		}
+	}
+
+	_drawMaskPattern(p, swap(mask), swap(color));
 }
 
-// --------------------------------------------------------------------------
-// Simple pure black/white checkerboard with halfspace rasterizer
+static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	raster_scanline_uv_t tri;
+	if (!raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 5.0f))
+		return;
+
+	int height = raster_scanline_uv_begin1(&tri);
+	while (height--) {
+		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
+		raster_scanline_uv_y_step(&tri);
+	}
+	height = raster_scanline_uv_begin2(&tri);
+	while (height--) {
+		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
+		raster_scanline_uv_y_step(&tri);
+	}
+}
 
 FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 {
@@ -2104,12 +1728,7 @@ void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const flo
 	}
 	else if (style == Draw_Dither3D_Scanline)
 	{
-		// draw strictly black/white checker based on UV coordinates
 		draw_triangle_dither3d_scanline(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
-	}
-	else if (style == Draw_Dither3D_Hecker)
-	{
-		draw_triangle_dither3d_hecker(bitmap, rowstride, p1, p2, p3, mesh->uvs + tri_index * 6, (uint8_t)(saturate(v) * 255.0f));
 	}
 	else if (style == Draw_Dither3D_Halfspace)
 	{

@@ -37,7 +37,7 @@ static Scene s_scene;
 
 static bool s_draw_test = false;
 static bool s_draw_wire = false;
-static enum DrawStyle s_draw_style = Draw_Checker_Scanline;
+static enum DrawStyle s_draw_style = Draw_Dither3D_Scanline;
 static float s_cam_dist = 8.0f;
 
 #define SCENE_OBJECT_COUNT (sizeof(g_meshes)/sizeof(g_meshes[0]))

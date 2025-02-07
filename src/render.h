@@ -56,15 +56,15 @@ enum DrawStyle {
 	Draw_Bluenoise,
 
 	// 34ms device, 0.43ms PC, based on Chris Hecker's fx_fl_sub, write 32 pixels
-	// 32ms device, edge Y check simplifications
+	// 31ms device, edge Y check simplifications
 	Draw_Checker_Scanline,
 
-	// 53ms device, 0.81ms PC, halfspace
+	// 53ms device, 0.75ms PC, halfspace
 	Draw_Checker_Halfspace,
 
-	Draw_Dither3D_Scanline, // wrong/incorrect right now
 	// 102ms device, fl_fl_div, perspective correct derivatives, write each bit
-	Draw_Dither3D_Hecker,
+	// 71ms device, fx_fl_sub, interpolate Y derivatives along whole edge
+	Draw_Dither3D_Scanline,
 
 	// 605ms device, 5.8ms PC
 	// 316ms device, 4.2ms PC adjust_float_exp
@@ -78,7 +78,7 @@ enum DrawStyle {
 	// 76ms device, perspective correct UVs at 2x horizontal step
 	// 74ms device, skip rest of row once we get out of triangle
 	// 65ms device, simplify sampled pattern comparison
-	// 63ms device, small micro opts
+	// 63ms device, 0.92ms PC, small micro opts
 	Draw_Dither3D_Halfspace,
 	Draw_Count
 };
