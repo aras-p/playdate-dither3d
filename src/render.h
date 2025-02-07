@@ -53,6 +53,7 @@ enum DrawStyle {
 	Draw_Bluenoise,
 
 	// 34ms device, 0.43ms PC, based on Chris Hecker's fx_fl_sub, write 32 pixels
+	// 32ms device, edge Y check simplifications
 	Draw_Checker_Scanline,
 
 	// 53ms device, 0.81ms PC, halfspace

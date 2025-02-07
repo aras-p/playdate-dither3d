@@ -562,28 +562,32 @@ typedef struct tri_gradients {
 	float vz_dx, vz_dy;		// d(v/z)/dX, d(v/z)/dY
 } tri_gradients;
 
-static void tri_gradients_init(tri_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
 {
-	float invdx = 1.0f / (((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y)));
+	const float det = ((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y));
+	if ((int)det == 0)
+		return false; // zero area
+
+	float invdx = 1.0f / det;
 	float invdy = -invdx;
 
 	{
 		float const invz = 1.0f / p0->z;
 		t->invz[0] = invz;
-		t->uz[0] = uvs[0] * invz;
-		t->vz[0] = uvs[1] * invz;
+		t->uz[0] = uvs[0] * (uv_scale * invz);
+		t->vz[0] = uvs[1] * (uv_scale * invz);
 	}
 	{
 		float const invz = 1.0f / p1->z;
 		t->invz[1] = invz;
-		t->uz[1] = uvs[2] * invz;
-		t->vz[1] = uvs[3] * invz;
+		t->uz[1] = uvs[2] * (uv_scale * invz);
+		t->vz[1] = uvs[3] * (uv_scale * invz);
 	}
 	{
 		float const invz = 1.0f / p2->z;
 		t->invz[2] = invz;
-		t->uz[2] = uvs[4] * invz;
-		t->vz[2] = uvs[5] * invz;
+		t->uz[2] = uvs[4] * (uv_scale * invz);
+		t->vz[2] = uvs[5] * (uv_scale * invz);
 	}
 
 	t->invz_dx = invdx * (((t->invz[1] - t->invz[2]) * (p0->y - p2->y)) - ((t->invz[0] - t->invz[2]) * (p1->y - p2->y)));
@@ -594,6 +598,7 @@ static void tri_gradients_init(tri_gradients* t, const float3* p0, const float3*
 
 	t->vz_dx = invdx * (((t->vz[1] - t->vz[2]) * (p0->y - p2->y)) - ((t->vz[0] - t->vz[2]) * (p1->y - p2->y)));
 	t->vz_dy = invdy * (((t->vz[1] - t->vz[2]) * (p0->x - p2->x)) - ((t->vz[0] - t->vz[2]) * (p1->x - p2->x)));
+	return true;
 }
 
 typedef struct tri_edge {
@@ -658,50 +663,129 @@ static inline int tri_edge_step(tri_edge* t)
 	return t->height;
 }
 
-static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge* edge_l, const tri_edge* edge_r)
+#define kAffineLength (8)
+
+typedef struct raster_scanline_line_t {
+	float invz_left, uz_left, vz_left;
+	float invz_aff_step, uz_aff_step ,vz_aff_step;
+	float invz_right, uz_right, vz_right;
+
+	float z_left, u_left, v_left;
+	float z_right, u_right, v_right;
+
+	fixed16_16 U, V, dU, dV;
+
+	int aff_spans, aff_remainder;
+
+	float clip_adj_l, clip_adj_r;
+	int x_start, x_end;
+} raster_scanline_line_t;
+
+FORCE_INLINE bool raster_scanline_line_init(raster_scanline_line_t* line, const tri_gradients* grad, const tri_edge* edge_l, const tri_edge* edge_r)
 {
 	assert(edge_l->Y >= 0);
 	assert(edge_l->Y < SCREEN_Y);
 	assert(edge_l->Y == edge_r->Y);
 
-	const int x_start = max2(0, edge_l->X);
-	const int x_end = min2(SCREEN_X, edge_r->X);
-	int width = x_end - x_start;
-	if (width <= 0)
-		return;
+	line->x_start = max2(0, edge_l->X);
+	line->x_end = min2(SCREEN_X, edge_r->X);
+	if (line->x_end <= line->x_start)
+		return false;
 
-	const float clip_adj_l = (float)(x_start - edge_l->X);
-	const float clip_adj_r = (float)(edge_r->X - x_end + 1);
+	line->clip_adj_l = (float)(line->x_start - edge_l->X);
+	line->clip_adj_r = (float)(edge_r->X - line->x_end + 1);
 
-	const int kAffineLength = 8;
+	line->invz_left = edge_l->invz + line->clip_adj_l * grad->invz_dx;
+	line->uz_left = edge_l->uz + line->clip_adj_l * grad->uz_dx;
+	line->vz_left = edge_l->vz + line->clip_adj_l * grad->vz_dx;
 
-	const float invz_left = edge_l->invz + clip_adj_l * grad->invz_dx;
-	const float uz_left = edge_l->uz + clip_adj_l * grad->uz_dx;
-	const float vz_left = edge_l->vz + clip_adj_l * grad->vz_dx;
+	line->invz_aff_step = grad->invz_dx * kAffineLength;
+	line->uz_aff_step = grad->uz_dx * kAffineLength;
+	line->vz_aff_step = grad->vz_dx * kAffineLength;
 
-	const float invz_aff_step = grad->invz_dx * kAffineLength;
-	const float uz_aff_step = grad->uz_dx * kAffineLength;
-	const float vz_aff_step = grad->vz_dx * kAffineLength;
+	line->invz_right = line->invz_left + line->invz_aff_step;
+	line->uz_right = line->uz_left + line->uz_aff_step;
+	line->vz_right = line->vz_left + line->vz_aff_step;
 
-	float invz_right = invz_left + invz_aff_step;
-	float uz_right = uz_left + uz_aff_step;
-	float vz_right = vz_left + vz_aff_step;
+	line->z_left = 1.0f / line->invz_left;
+	line->u_left = line->z_left * line->uz_left;
+	line->v_left = line->z_left * line->vz_left;
 
-	float z_left = 1.0f / invz_left;
-	float u_left = z_left * uz_left;
-	float v_left = z_left * vz_left;
-
-	float z_right, u_right, v_right;
-
-	int aff_spans = width / kAffineLength;
-	int aff_remainder = width % kAffineLength;
-	if (!aff_remainder)
+	const int width = line->x_end - line->x_start;
+	line->aff_spans = width / kAffineLength;
+	line->aff_remainder = width % kAffineLength;
+	if (!line->aff_remainder)
 	{
-		aff_spans--;
-		aff_remainder = kAffineLength;
+		line->aff_spans--;
+		line->aff_remainder = kAffineLength;
 	}
 
-	int X = x_start;
+	line->U = line->V = line->dU = line->dV = 0;
+	return true;
+}
+
+FORCE_INLINE bool raster_scanline_spans_continue(raster_scanline_line_t* line)
+{
+	return line->aff_spans-- > 0;
+}
+
+FORCE_INLINE void raster_scanline_spans_step(raster_scanline_line_t* line)
+{
+	line->z_left = line->z_right;
+	line->u_left = line->u_right;
+	line->v_left = line->v_right;
+
+	line->invz_right += line->invz_aff_step;
+	line->uz_right += line->uz_aff_step;
+	line->vz_right += line->vz_aff_step;
+}
+
+FORCE_INLINE void raster_scanline_inner_begin(raster_scanline_line_t* line)
+{
+	line->z_right = 1.0f / line->invz_right;
+	line->u_right = line->z_right * line->uz_right;
+	line->v_right = line->z_right * line->vz_right;
+
+	line->U = FloatToFixed16_16(line->u_left);
+	line->V = FloatToFixed16_16(line->v_left);
+	line->dU = FloatToFixed16_16(line->u_right - line->u_left) / kAffineLength;
+	line->dV = FloatToFixed16_16(line->v_right - line->v_left) / kAffineLength;
+}
+
+FORCE_INLINE void raster_scanline_inner_step(raster_scanline_line_t* line)
+{
+	line->U += line->dU;
+	line->V += line->dV;
+}
+
+FORCE_INLINE bool raster_scanline_has_rem(raster_scanline_line_t* line)
+{
+	return line->aff_remainder;
+}
+
+FORCE_INLINE void raster_scanline_rem_begin(raster_scanline_line_t* line, const tri_gradients* grad, const tri_edge* edge_r)
+{
+	line->z_right = 1.0f / (edge_r->invz - grad->invz_dx * line->clip_adj_r);
+	line->u_right = line->z_right * (edge_r->uz - grad->uz_dx * line->clip_adj_r);
+	line->v_right = line->z_right * (edge_r->vz - grad->vz_dx * line->clip_adj_r);
+
+	line->U = FloatToFixed16_16(line->u_left);
+	line->V = FloatToFixed16_16(line->v_left);
+	if (--line->aff_remainder)
+	{
+		// guard against div-by-0 for 1 pixel lines
+		line->dU = FloatToFixed16_16(line->u_right - line->u_left) / line->aff_remainder;
+		line->dV = FloatToFixed16_16(line->v_right - line->v_left) / line->aff_remainder;
+	}
+}
+
+static void draw_scanline_checker(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge* edge_l, const tri_edge* edge_r)
+{
+	raster_scanline_line_t line;
+	if (!raster_scanline_line_init(&line, grad, edge_l, edge_r))
+		return;
+
+	int X = line.x_start;
 
 	bitmap += edge_l->Y * rowstride;
 	// write out pixels 32 at a time
@@ -709,23 +793,12 @@ static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradient
 	uint32_t* p = (uint32_t*)bitmap + X / 32;
 	uint32_t color = 0;
 
-	while (aff_spans-- > 0)
+	while (raster_scanline_spans_continue(&line))
 	{
-		z_right = 1.0f / invz_right;
-		u_right = z_right * uz_right;
-		v_right = z_right * vz_right;
-
-		fixed16_16 U = FloatToFixed16_16(u_left);
-		fixed16_16 V = FloatToFixed16_16(v_left);
-		fixed16_16 dU = FloatToFixed16_16(u_right - u_left) / kAffineLength;
-		fixed16_16 dV = FloatToFixed16_16(v_right - v_left) / kAffineLength;
-
+		raster_scanline_inner_begin(&line);
 		for (int i = 0; i < kAffineLength; i++)
 		{
-			int UInt = (U * 5 * 64) >> 16;
-			int VInt = (V * 5 * 64) >> 16;
-
-			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
 			//checker = true;
 
 			mask |= 0x80000000u >> (X & 31);
@@ -742,18 +815,15 @@ static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradient
 			if (dbg)
 			{
 				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
-				int ui = ((U * 64) >> 16) & 63;
-				int vi = ((V * 64) >> 16) & 63;
 				dbg[dbg_idx + 0] += checker ? 250 : 0;
-				dbg[dbg_idx + 1] += ui * 4;
-				dbg[dbg_idx + 2] += vi * 4;
+				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
 				dbg[dbg_idx + 3] = 255;
 			}
 #endif
 
 			X++;
-			U += dU;
-			V += dV;
+			raster_scanline_inner_step(&line);
 
 			if (X % 32 == 0)
 			{
@@ -763,37 +833,16 @@ static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradient
 			}
 		}
 
-		z_left = z_right;
-		u_left = u_right;
-		v_left = v_right;
-
-		invz_right += invz_aff_step;
-		uz_right += uz_aff_step;
-		vz_right += vz_aff_step;
+		raster_scanline_spans_step(&line);
 	}
 
-	if (aff_remainder)
+	if (raster_scanline_has_rem(&line))
 	{
-		z_right = 1.0f / (edge_r->invz - grad->invz_dx * clip_adj_r);
-		u_right = z_right * (edge_r->uz - grad->uz_dx * clip_adj_r);
-		v_right = z_right * (edge_r->vz - grad->vz_dx * clip_adj_r);
+		raster_scanline_rem_begin(&line, grad, edge_r);
 
-		fixed16_16 U = FloatToFixed16_16(u_left);
-		fixed16_16 V = FloatToFixed16_16(v_left);
-		fixed16_16 dU = 0, dV = 0;
-		if (--aff_remainder)
+		for (int i = 0; i <= line.aff_remainder; i++)
 		{
-			// guard against div-by-0 for 1 pixel lines
-			dU = FloatToFixed16_16(u_right - u_left) / aff_remainder;
-			dV = FloatToFixed16_16(v_right - v_left) / aff_remainder;
-		}
-
-		for (int i = 0; i <= aff_remainder; i++)
-		{
-			int UInt = (U * 5 * 64) >> 16;
-			int VInt = (V * 5 * 64) >> 16;
-
-			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
+			bool checker = ((line.U & 0xFFFF) >= 0x8000) != ((line.V & 0xFFFF) >= 0x8000);
 			//checker = true;
 
 			mask |= 0x80000000u >> (X & 31);
@@ -810,18 +859,15 @@ static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradient
 			if (dbg)
 			{
 				int dbg_idx = (edge_l->Y * SCREEN_X + X) * 4;
-				int ui = ((U * 64) >> 16) & 63;
-				int vi = ((V * 64) >> 16) & 63;
 				dbg[dbg_idx + 0] += checker ? 250 : 0;
-				dbg[dbg_idx + 1] += ui * 4;
-				dbg[dbg_idx + 2] += vi * 4;
+				dbg[dbg_idx + 1] += (line.U / 5 >> 8) & 0xFF;
+				dbg[dbg_idx + 2] += (line.V / 5 >> 8) & 0xFF;
 				dbg[dbg_idx + 3] = 255;
 			}
 #endif
 
 			X++;
-			U += dU;
-			V += dV;
+			raster_scanline_inner_step(&line);
 
 			if (X % 32 == 0)
 			{
@@ -829,7 +875,6 @@ static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradient
 				mask = 0;
 				color = 0;
 			}
-
 		}
 	}
 
@@ -880,47 +925,78 @@ static bool tri_sort_vertices(const float3* p0, const float3* p1, const float3* 
 	return v_bot_cmp <= v_mid_cmp;
 }
 
-static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+typedef struct raster_scanline2_t
+{
+	tri_gradients grad;
+	tri_edge e_top_bottom, e_top_mid, e_mid_bottom;
+	tri_edge* e_left;
+	tri_edge* e_right;
+	bool mid_is_left;
+} raster_scanline2_t;
+
+FORCE_INLINE bool raster_scanline2_begin(raster_scanline2_t* st, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
 {
 	int v_top, v_mid, v_bottom;
-	const bool mid_is_left = tri_sort_vertices(p0, p1, p2, &v_top, &v_mid, &v_bottom);
+	st->mid_is_left = tri_sort_vertices(p0, p1, p2, &v_top, &v_mid, &v_bottom);
+
+	// triangle outside of Y range?
 	const float y_top = v_top == 0 ? p0->y : (v_top == 1 ? p1->y : p2->y);
-	if (y_top >= SCREEN_Y) return;
+	if (y_top >= SCREEN_Y) return false;
 	const float y_bottom = v_bottom == 0 ? p0->y : (v_bottom == 1 ? p1->y : p2->y);
-	if (y_bottom < 0.0f) return;
+	if (y_bottom < 0.0f) return false;
 
-	tri_gradients grad;
-	tri_gradients_init(&grad, p0, p1, p2, uvs);
-	tri_edge e_top_bottom;
-	tri_edge e_top_mid;
-	tri_edge e_mid_bottom;
-	tri_edge_init(&e_top_bottom, &grad, p0, p1, p2, v_top, v_bottom);
-	tri_edge_init(&e_top_mid, &grad, p0, p1, p2, v_top, v_mid);
-	tri_edge_init(&e_mid_bottom, &grad, p0, p1, p2, v_mid, v_bottom);
-	tri_edge* edge_l, *edge_r;
+	if (!tri_gradients_init(&st->grad, p0, p1, p2, uvs, uv_scale))
+		return false; // zero area
+	tri_edge_init(&st->e_top_bottom, &st->grad, p0, p1, p2, v_top, v_bottom);
+	tri_edge_init(&st->e_top_mid, &st->grad, p0, p1, p2, v_top, v_mid);
+	tri_edge_init(&st->e_mid_bottom, &st->grad, p0, p1, p2, v_mid, v_bottom);
 
-	int height = e_top_mid.height;
-	if (mid_is_left) {
-		edge_l = &e_top_bottom; edge_r = &e_top_mid;
+	st->e_left = st->e_right = NULL;
+	return true;
+}
+
+FORCE_INLINE int raster_scanline2_begin1(raster_scanline2_t* st)
+{
+	if (st->mid_is_left) {
+		st->e_left = &st->e_top_bottom; st->e_right = &st->e_top_mid;
 	}
 	else {
-		edge_l = &e_top_mid; edge_r = &e_top_bottom;
+		st->e_left = &st->e_top_mid; st->e_right = &st->e_top_bottom;
 	}
-	while (height--) {
-		tri_draw_scanline(bitmap, rowstride, &grad, edge_l, edge_r);
-		tri_edge_step(&e_top_mid); tri_edge_step(&e_top_bottom);
-	}
+	return st->e_top_mid.height;
+}
 
-	height = e_mid_bottom.height;
-	if (mid_is_left) {
-		edge_l = &e_top_bottom; edge_r = &e_mid_bottom;
+FORCE_INLINE int raster_scanline2_begin2(raster_scanline2_t* st)
+{
+	if (st->mid_is_left) {
+		st->e_left = &st->e_top_bottom; st->e_right = &st->e_mid_bottom;
 	}
 	else {
-		edge_l = &e_mid_bottom; edge_r = &e_top_bottom;
+		st->e_left = &st->e_mid_bottom; st->e_right = &st->e_top_bottom;
 	}
+	return st->e_mid_bottom.height;
+}
+
+FORCE_INLINE void raster_scanline2_y_step(raster_scanline2_t* st)
+{
+	tri_edge_step(st->e_left); tri_edge_step(st->e_right);
+}
+
+static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
+{
+	raster_scanline2_t tri;
+	if (!raster_scanline2_begin(&tri, p0, p1, p2, uvs, 5.0f))
+		return;
+
+	int height = raster_scanline2_begin1(&tri);
 	while (height--) {
-		tri_draw_scanline(bitmap, rowstride, &grad, edge_l, edge_r);
-		tri_edge_step(&e_mid_bottom); tri_edge_step(&e_top_bottom);
+		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
+		raster_scanline2_y_step(&tri);
+	}
+	height = raster_scanline2_begin2(&tri);
+	while (height--) {
+		draw_scanline_checker(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right);
+		raster_scanline2_y_step(&tri);
 	}
 }
 
@@ -1509,7 +1585,7 @@ static void draw_triangle_dither3d_hecker(uint8_t* bitmap, int rowstride, const 
 	}
 
 	tri_gradients grad;
-	tri_gradients_init(&grad, p0, p1, p2, uvs);
+	tri_gradients_init(&grad, p0, p1, p2, uvs, 1.0f);
 	tri_edge e_top_bottom;
 	tri_edge e_top_mid;
 	tri_edge e_mid_bottom;
