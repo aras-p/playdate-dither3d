@@ -611,8 +611,8 @@ static void tri_edge_init(tri_edge* t, const tri_gradients* grad, const float3* 
 	float3 vertBottom = bottom == 0 ? *p0 : (bottom == 1 ? *p1 : *p2);
 	fixed28_4 topXfx = FloatToFixed28_4(vertTop.x - 0.5f), botXfx = FloatToFixed28_4(vertBottom.x - 0.5f);
 	fixed28_4 topYfx = FloatToFixed28_4(vertTop.y - 0.5f), botYfx = FloatToFixed28_4(vertBottom.y - 0.5f);
-	t->Y = Ceil28_4(topYfx);
-	int YEnd = Ceil28_4(botYfx);
+	t->Y = clamp_i(Ceil28_4(topYfx), 0, SCREEN_Y);
+	const int YEnd = clamp_i(Ceil28_4(botYfx), 0, SCREEN_Y);
 	t->height = YEnd - t->Y;
 	assert(t->height >= 0);
 
@@ -660,8 +660,9 @@ static inline int tri_edge_step(tri_edge* t)
 
 static void tri_draw_scanline(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge* edge_l, const tri_edge* edge_r)
 {
-	if (edge_l->Y < 0 || edge_l->Y >= SCREEN_Y)
-		return;
+	assert(edge_l->Y >= 0);
+	assert(edge_l->Y < SCREEN_Y);
+	assert(edge_l->Y == edge_r->Y);
 
 	const int x_start = max2(0, edge_l->X);
 	const int x_end = min2(SCREEN_X, edge_r->X);
@@ -883,6 +884,10 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 {
 	int v_top, v_mid, v_bottom;
 	const bool mid_is_left = tri_sort_vertices(p0, p1, p2, &v_top, &v_mid, &v_bottom);
+	const float y_top = v_top == 0 ? p0->y : (v_top == 1 ? p1->y : p2->y);
+	if (y_top >= SCREEN_Y) return;
+	const float y_bottom = v_bottom == 0 ? p0->y : (v_bottom == 1 ? p1->y : p2->y);
+	if (y_bottom < 0.0f) return;
 
 	tri_gradients grad;
 	tri_gradients_init(&grad, p0, p1, p2, uvs);

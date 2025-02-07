@@ -74,6 +74,14 @@ static inline int max3(int a, int b, int c)
 	return (a > b) ? ((a > c) ? a : c) : ((b > c) ? b : c);
 }
 
+static inline int clamp_i(int v, int a, int b)
+{
+	if (v < a) v = a;
+	if (v > b) v = b;
+	return v;
+}
+
+
 #define M_PIf (3.14159265f)
 
 static inline float saturate(float v)
