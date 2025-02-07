@@ -196,6 +196,7 @@ typedef struct tri_gradients {
 	float invz_dx, invz_dy;	// d(1/z)/dX, d(1/z)/dY
 	float uz_dx, uz_dy;		// d(u/z)/dX, d(u/z)/dY
 	float vz_dx, vz_dy;		// d(v/z)/dX, d(v/z)/dY
+	float inv_det;
 } tri_gradients;
 
 static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
@@ -204,8 +205,9 @@ static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3*
 	if ((int)det == 0)
 		return false; // zero area
 
-	float invdx = 1.0f / det;
-	float invdy = -invdx;
+	t->inv_det = 1.0f / det;
+	float invdx = t->inv_det;
+	float invdy = -t->inv_det;
 
 	{
 		float const invz = 1.0f / p0->z;
@@ -226,14 +228,19 @@ static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3*
 		t->vz[2] = uvs[5] * (uv_scale * invz);
 	}
 
-	t->invz_dx = invdx * (((t->invz[1] - t->invz[2]) * (p0->y - p2->y)) - ((t->invz[0] - t->invz[2]) * (p1->y - p2->y)));
-	t->invz_dy = invdy * (((t->invz[1] - t->invz[2]) * (p0->x - p2->x)) - ((t->invz[0] - t->invz[2]) * (p1->x - p2->x)));
+	float x02 = p0->x - p2->x;
+	float y02 = p0->y - p2->y;
+	float x12 = p1->x - p2->x;
+	float y12 = p1->y - p2->y;
 
-	t->uz_dx = invdx * (((t->uz[1] - t->uz[2]) * (p0->y - p2->y)) - ((t->uz[0] - t->uz[2]) * (p1->y - p2->y)));
-	t->uz_dy = invdy * (((t->uz[1] - t->uz[2]) * (p0->x - p2->x)) - ((t->uz[0] - t->uz[2]) * (p1->x - p2->x)));
+	t->invz_dx = invdx * (((t->invz[1] - t->invz[2]) * y02) - ((t->invz[0] - t->invz[2]) * y12));
+	t->invz_dy = invdy * (((t->invz[1] - t->invz[2]) * x02) - ((t->invz[0] - t->invz[2]) * x12));
 
-	t->vz_dx = invdx * (((t->vz[1] - t->vz[2]) * (p0->y - p2->y)) - ((t->vz[0] - t->vz[2]) * (p1->y - p2->y)));
-	t->vz_dy = invdy * (((t->vz[1] - t->vz[2]) * (p0->x - p2->x)) - ((t->vz[0] - t->vz[2]) * (p1->x - p2->x)));
+	t->uz_dx = invdx * (((t->uz[1] - t->uz[2]) * y02) - ((t->uz[0] - t->uz[2]) * y12));
+	t->uz_dy = invdy * (((t->uz[1] - t->uz[2]) * x02) - ((t->uz[0] - t->uz[2]) * x12));
+
+	t->vz_dx = invdx * (((t->vz[1] - t->vz[2]) * y02) - ((t->vz[0] - t->vz[2]) * y12));
+	t->vz_dy = invdy * (((t->vz[1] - t->vz[2]) * x02) - ((t->vz[0] - t->vz[2]) * x12));
 	return true;
 }
 
@@ -244,6 +251,7 @@ typedef struct tri_edge_uv {
 	float invz, invz_step, invz_step_extra;	// 1/z and step
 	float uz, uz_step, uz_step_extra;		// u/z and step
 	float vz, vz_step, vz_step_extra;		// v/z and step
+	float x_prestep, y_prestep;
 } tri_edge_uv;
 
 typedef struct tri_edge {
@@ -273,18 +281,18 @@ static void tri_edge_uv_init(tri_edge_uv* t, const tri_gradients* grad, const fl
 		FloorDivMod(dM * 16, dN * 16, &t->x_step, &t->numerator);
 		t->denominator = dN * 16;
 
-		float x_prestep = Fixed28_4ToFloat(t->X * 16 - topXfx);
-		float y_prestep = Fixed28_4ToFloat(t->Y * 16 - topYfx);
+		t->x_prestep = Fixed28_4ToFloat(t->X * 16 - topXfx);
+		t->y_prestep = Fixed28_4ToFloat(t->Y * 16 - topYfx);
 
-		t->invz = grad->invz[top] + y_prestep * grad->invz_dy + x_prestep * grad->invz_dx;
+		t->invz = grad->invz[top] + t->y_prestep * grad->invz_dy + t->x_prestep * grad->invz_dx;
 		t->invz_step = t->x_step * grad->invz_dx + grad->invz_dy;
 		t->invz_step_extra = grad->invz_dx;
 
-		t->uz = grad->uz[top] + y_prestep * grad->uz_dy + x_prestep * grad->uz_dx;
+		t->uz = grad->uz[top] + t->y_prestep * grad->uz_dy + t->x_prestep * grad->uz_dx;
 		t->uz_step = t->x_step * grad->uz_dx + grad->uz_dy;
 		t->uz_step_extra = grad->uz_dx;
 
-		t->vz = grad->vz[top] + y_prestep * grad->vz_dy + x_prestep * grad->vz_dx;
+		t->vz = grad->vz[top] + t->y_prestep * grad->vz_dy + t->x_prestep * grad->vz_dx;
 		t->vz_step = t->x_step * grad->vz_dx + grad->vz_dy;
 		t->vz_step_extra = grad->vz_dx;
 	}
@@ -514,6 +522,7 @@ typedef struct raster_scanline_uv_t
 	tri_edge_uv* e_left;
 	tri_edge_uv* e_right;
 	bool mid_is_left;
+	int v_top, v_mid, v_bottom;
 } raster_scanline_uv_t;
 
 FORCE_INLINE bool raster_scanline_simple_begin(raster_scanline_simple_t* st, const float3* p0, const float3* p1, const float3* p2)
@@ -542,20 +551,19 @@ FORCE_INLINE bool raster_scanline_simple_begin(raster_scanline_simple_t* st, con
 
 FORCE_INLINE bool raster_scanline_uv_begin(raster_scanline_uv_t* st, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
 {
-	int v_top, v_mid, v_bottom;
-	st->mid_is_left = tri_sort_vertices(p0, p1, p2, &v_top, &v_mid, &v_bottom);
+	st->mid_is_left = tri_sort_vertices(p0, p1, p2, &st->v_top, &st->v_mid, &st->v_bottom);
 
 	// triangle outside of Y range?
-	const float y_top = v_top == 0 ? p0->y : (v_top == 1 ? p1->y : p2->y);
+	const float y_top = st->v_top == 0 ? p0->y : (st->v_top == 1 ? p1->y : p2->y);
 	if (y_top >= SCREEN_Y) return false;
-	const float y_bottom = v_bottom == 0 ? p0->y : (v_bottom == 1 ? p1->y : p2->y);
+	const float y_bottom = st->v_bottom == 0 ? p0->y : (st->v_bottom == 1 ? p1->y : p2->y);
 	if (y_bottom < 0.0f) return false;
 
 	if (!tri_gradients_init(&st->grad, p0, p1, p2, uvs, uv_scale))
 		return false; // zero area
-	tri_edge_uv_init(&st->e_top_bottom, &st->grad, p0, p1, p2, v_top, v_bottom);
-	tri_edge_uv_init(&st->e_top_mid, &st->grad, p0, p1, p2, v_top, v_mid);
-	tri_edge_uv_init(&st->e_mid_bottom, &st->grad, p0, p1, p2, v_mid, v_bottom);
+	tri_edge_uv_init(&st->e_top_bottom, &st->grad, p0, p1, p2, st->v_top, st->v_bottom);
+	tri_edge_uv_init(&st->e_top_mid, &st->grad, p0, p1, p2, st->v_top, st->v_mid);
+	tri_edge_uv_init(&st->e_mid_bottom, &st->grad, p0, p1, p2, st->v_mid, st->v_bottom);
 
 	st->e_left = st->e_right = NULL;
 	return true;
@@ -563,45 +571,29 @@ FORCE_INLINE bool raster_scanline_uv_begin(raster_scanline_uv_t* st, const float
 
 FORCE_INLINE int raster_scanline_simple_begin1(raster_scanline_simple_t* st)
 {
-	if (st->mid_is_left) {
-		st->e_left = &st->e_top_bottom; st->e_right = &st->e_top_mid;
-	}
-	else {
-		st->e_left = &st->e_top_mid; st->e_right = &st->e_top_bottom;
-	}
+	st->e_left = st->mid_is_left ? &st->e_top_bottom : &st->e_top_mid;
+	st->e_right = st->mid_is_left ? &st->e_top_mid : &st->e_top_bottom;
 	return st->e_top_mid.height;
 }
 
 FORCE_INLINE int raster_scanline_uv_begin1(raster_scanline_uv_t* st)
 {
-	if (st->mid_is_left) {
-		st->e_left = &st->e_top_bottom; st->e_right = &st->e_top_mid;
-	}
-	else {
-		st->e_left = &st->e_top_mid; st->e_right = &st->e_top_bottom;
-	}
+	st->e_left = st->mid_is_left ? &st->e_top_bottom : &st->e_top_mid;
+	st->e_right = st->mid_is_left ? &st->e_top_mid : &st->e_top_bottom;
 	return st->e_top_mid.height;
 }
 
 FORCE_INLINE int raster_scanline_simple_begin2(raster_scanline_simple_t* st)
 {
-	if (st->mid_is_left) {
-		st->e_left = &st->e_top_bottom; st->e_right = &st->e_mid_bottom;
-	}
-	else {
-		st->e_left = &st->e_mid_bottom; st->e_right = &st->e_top_bottom;
-	}
+	st->e_left = st->mid_is_left ? &st->e_top_bottom : &st->e_mid_bottom;
+	st->e_right = st->mid_is_left ? &st->e_mid_bottom : &st->e_top_bottom;
 	return st->e_mid_bottom.height;
 }
 
 FORCE_INLINE int raster_scanline_uv_begin2(raster_scanline_uv_t* st)
 {
-	if (st->mid_is_left) {
-		st->e_left = &st->e_top_bottom; st->e_right = &st->e_mid_bottom;
-	}
-	else {
-		st->e_left = &st->e_mid_bottom; st->e_right = &st->e_top_bottom;
-	}
+	st->e_left = st->mid_is_left ? &st->e_top_bottom : &st->e_mid_bottom;
+	st->e_right = st->mid_is_left ? &st->e_mid_bottom : &st->e_top_bottom;
 	return st->e_mid_bottom.height;
 }
 
@@ -1047,9 +1039,9 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		// bw
 		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
 
-		//dbg.x = debug_val;
-		//dbg.y = -debug_val;
-		//dbg.z = 0;
+		dbg.x = debug_val;
+		dbg.y = -debug_val;
+		dbg.z = 0;
 
 		const int offset = (y * SCREEN_X + x) * 4 + 0;
 		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
@@ -1160,7 +1152,7 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			//dbg = state.dvdx * 15;
 			//dbg = state.dudy * 15;
 			//dbg = state.dvdy * 15;
-			//dbg = spacing;
+			dbg = spacing;
 			if (state.inside_00)
 			{
 				bool check = do_pixel_sample(state.u_00, state.v_00, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y, dbg);
@@ -1197,8 +1189,19 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 	}
 }
 
+typedef struct spacing_gradients {
+	float sz[3]; // spacing/z for each vertex
+	float sz_dx, sz_dy;
+} spacing_gradients;
 
-static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gradients* grad, const tri_edge_uv* edge_l, const tri_edge_uv* edge_r, const uint8_t compare_val, const float spacingMul)
+typedef struct spacing_edge {
+	float sz, sz_step, sz_step_extra;
+} spacing_edge;
+
+static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
+	const tri_gradients* grad, const tri_edge_uv* edge_l, const tri_edge_uv* edge_r,
+	const spacing_edge* spc_l, const spacing_edge* spc_r,
+	const uint8_t compare_val, const float spacingMul)
 {
 	raster_scanline_line_t line;
 	if (!raster_scanline_line_init(&line, grad, edge_l, edge_r))
@@ -1207,23 +1210,10 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gra
 	int X = line.x_start;
 	bitmap += edge_l->Y * rowstride;
 
-	// We need the vertical derivative inside the inner loop.
-	// Instead of doing it fully correctly, calculate du/dy and dv/dy at left and right edges,
-	// and just interpolate them across.
-	const float u0_left = edge_l->uz / edge_l->invz;
-	const float v0_left = edge_l->vz / edge_l->invz;
-	const float u1_left = (edge_l->uz + grad->uz_dy) / (edge_l->invz + grad->invz_dy);
-	const float v1_left = (edge_l->vz + grad->vz_dy) / (edge_l->invz + grad->invz_dy);
-	const float u0_right = edge_r->uz / edge_r->invz;
-	const float v0_right = edge_r->vz / edge_r->invz;
-	const float u1_right = (edge_r->uz + grad->uz_dy) / (edge_r->invz + grad->invz_dy);
-	const float v1_right = (edge_r->vz + grad->vz_dy) / (edge_r->invz + grad->invz_dy);
-	const float dudy_left = u1_left - u0_left;
-	const float dvdy_left = v1_left - v0_left;
-	const float dudy_right = u1_right - u0_right;
-	const float dvdy_right = v1_right - v0_right;
 	const float lerp_step = 1.0f / (line.x_end - line.x_start);
 	float lerper = 0.0f;
+	const float spacing_l = spc_l->sz / edge_l->invz;
+	const float spacing_r = spc_r->sz / edge_r->invz;
 
 	while (raster_scanline_spans_continue(&line))
 	{
@@ -1233,22 +1223,12 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gra
 		{
 			float uu = Fixed16_16ToFloat(line.U);
 			float vv = Fixed16_16ToFloat(line.V);
-			float dudx = Fixed16_16ToFloat(line.dU);
-			float dvdx = Fixed16_16ToFloat(line.dV);
-			float dudy = lerp(dudy_left, dudy_right, lerper);
-			float dvdy = lerp(dvdy_left, dvdy_right, lerper);
+			float spacing = lerp(spacing_l, spacing_r, lerper);
 			lerper += lerp_step;
 
-			float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
-			spacing *= spacingMul;
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
-			float dbg = 0.0f;
-			//dbg = dudx * 15;
-			//dbg = dvdx * 15;
-			//dbg = dudy * 15;
-			//dbg = dvdy * 15;
-			//dbg = spacing;
+			float dbg = spacing;
 			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
@@ -1268,22 +1248,12 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gra
 		{
 			float uu = Fixed16_16ToFloat(line.U);
 			float vv = Fixed16_16ToFloat(line.V);
-			float dudx = Fixed16_16ToFloat(line.dU);
-			float dvdx = Fixed16_16ToFloat(line.dV);
-			float dudy = lerp(dudy_left, dudy_right, lerper);
-			float dvdy = lerp(dvdy_left, dvdy_right, lerper);
+			float spacing = lerp(spacing_l, spacing_r, lerper);
 			lerper += lerp_step;
 
-			float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
-			spacing *= spacingMul;
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
-			float dbg = 0.0f;
-			//dbg = dudx * 15;
-			//dbg = dvdx * 15;
-			//dbg = dudy * 15;
-			//dbg = dvdy * 15;
-			//dbg = spacing;
+			float dbg = spacing;
 			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
@@ -1294,6 +1264,57 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride, const tri_gra
 			X++;
 			raster_scanline_inner_step(&line);
 		}
+	}
+}
+
+static void spacing_gradients_init(spacing_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const tri_gradients* grad, const float spacingMul)
+{
+	for (int i = 0; i < 3; ++i)
+	{
+		const float ux = (grad->uz[i] + grad->uz_dx) / (grad->invz[i] + grad->invz_dx);
+		const float vx = (grad->vz[i] + grad->vz_dx) / (grad->invz[i] + grad->invz_dx);
+		const float uy = (grad->uz[i] + grad->uz_dy) / (grad->invz[i] + grad->invz_dy);
+		const float vy = (grad->vz[i] + grad->vz_dy) / (grad->invz[i] + grad->invz_dy);
+		const float dudx = ux - uvs[i * 2 + 0];
+		const float dvdx = vx - uvs[i * 2 + 1];
+		const float dudy = uy - uvs[i * 2 + 0];
+		const float dvdy = vy - uvs[i * 2 + 1];
+		float spacing = (fabsf(dudx) + fabsf(dvdx) + fabsf(dudy) + fabsf(dvdy)) * 0.25f;
+		spacing *= spacingMul;
+		t->sz[i] = spacing * grad->invz[i];
+	}
+
+	float invdx = grad->inv_det;
+	float invdy = -grad->inv_det;
+
+	float x02 = p0->x - p2->x;
+	float y02 = p0->y - p2->y;
+	float x12 = p1->x - p2->x;
+	float y12 = p1->y - p2->y;
+	t->sz_dx = invdx * (((t->sz[1] - t->sz[2]) * y02) - ((t->sz[0] - t->sz[2]) * y12));
+	t->sz_dy = invdy * (((t->sz[1] - t->sz[2]) * x02) - ((t->sz[0] - t->sz[2]) * x12));
+}
+
+static void spacing_edge_init(spacing_edge* t, const tri_edge_uv* edge, const spacing_gradients* grad, int top)
+{
+	t->sz = grad->sz[top] + edge->y_prestep * grad->sz_dy + edge->x_prestep * grad->sz_dx;
+	t->sz_step = edge->x_step * grad->sz_dx + grad->sz_dy;
+	t->sz_step_extra = grad->sz_dx;
+}
+
+FORCE_INLINE void spacing_edge_step(tri_edge_uv* t, spacing_edge* s)
+{
+	t->X += t->x_step; t->Y++; t->height--;
+	t->uz += t->uz_step; t->vz += t->vz_step; t->invz += t->invz_step;
+	s->sz += s->sz_step;
+
+	t->error_term += t->numerator;
+	if (t->error_term >= t->denominator) {
+		t->X++;
+		t->error_term -= t->denominator;
+		t->invz += t->invz_step_extra;
+		t->uz += t->uz_step_extra; t->vz += t->vz_step_extra;
+		s->sz += s->sz_step_extra;
 	}
 }
 
@@ -1314,15 +1335,31 @@ static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, cons
 	const float spacingMul = DITHER_SCALE_EXP * DITHER_DOTS_PER_SIDE * 0.125f * brightnessSpacingMultiplier;
 	const int compare_val = get_dither3d_compare_val(brightness, brightnessCurve, brightnessSpacingMultiplier);
 
+	// Calculate spacing at vertices of triangle, interpolate across
+	spacing_gradients s_grad;
+	spacing_gradients_init(&s_grad, p0, p1, p2, uvs, &tri.grad, spacingMul);
+	spacing_edge s_top_bottom, s_top_mid, s_mid_bot;
+	spacing_edge_init(&s_top_bottom, &tri.e_top_bottom, &s_grad, tri.v_top);
+	spacing_edge_init(&s_top_mid, &tri.e_top_mid, &s_grad, tri.v_top);
+	spacing_edge_init(&s_mid_bot, &tri.e_mid_bottom, &s_grad, tri.v_mid);
+	spacing_edge* s_e_left;
+	spacing_edge* s_e_right;
+
 	int height = raster_scanline_uv_begin1(&tri);
+	s_e_left = tri.mid_is_left ? &s_top_bottom : &s_top_mid;
+	s_e_right = tri.mid_is_left ? &s_top_mid : &s_top_bottom;
 	while (height--) {
-		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, compare_val, spacingMul);
-		raster_scanline_uv_y_step(&tri);
+		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, s_e_left, s_e_right, compare_val, spacingMul);
+		spacing_edge_step(tri.e_left, s_e_left);
+		spacing_edge_step(tri.e_right, s_e_right);
 	}
 	height = raster_scanline_uv_begin2(&tri);
+	s_e_left = tri.mid_is_left ? &s_top_bottom : &s_mid_bot;
+	s_e_right = tri.mid_is_left ? &s_mid_bot : &s_top_bottom;
 	while (height--) {
-		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, compare_val, spacingMul);
-		raster_scanline_uv_y_step(&tri);
+		draw_scanline_dither3d(bitmap, rowstride, &tri.grad, tri.e_left, tri.e_right, s_e_left, s_e_right, compare_val, spacingMul);
+		spacing_edge_step(tri.e_left, s_e_left);
+		spacing_edge_step(tri.e_right, s_e_right);
 	}
 }
 
