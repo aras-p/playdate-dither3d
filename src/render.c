@@ -515,14 +515,12 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 
 		// write out pixels 32 at a time
 		uint32_t mask = 0;
-		uint32_t* p = (uint32_t*)row + hs.x / 32; // 1.0%
+		uint32_t* p = (uint32_t*)row + hs.x / 32;
 		uint32_t color = 0;
 
-		while(raster_scanline_x_continue(&hs)) // 7.1%
+		while(raster_scanline_x_continue(&hs))
 		{
-			mask |= 0x80000000u >> (hs.x & 31); // 8%
-
-			int uu = hs.u * 5; // 0.4%
+			int uu = hs.u * 5;
 			int vv = hs.v * 5;
 			// |1 to prevent floating point division error
 			int divisor = (hs.w >> max2(0, W_SHIFT - UV_SHIFT)) | 1;
@@ -550,6 +548,7 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 #endif
 
 
+			mask |= 0x80000000u >> (hs.x & 31);
 			uint32_t texpix = checker ? 0x0 : 0x80;
 			color |= (texpix << 24) >> (hs.x % 32);
 
@@ -561,7 +560,7 @@ static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const
 
 			raster_scanline_x_step(&hs);
 
-			if (hs.x % 32 == 0) // 5.6%
+			if (hs.x % 32 == 0)
 			{
 				_drawMaskPattern(p++, swap(mask), swap(color));
 				mask = 0;
@@ -960,8 +959,6 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 	if (Width <= 0)
 		return;
 
-	bitmap += pLeft->Y * rowstride;
-
 	float LeftClipAdj = (float)(XStart - pLeft->X);
 	float RightClipAdj = (float)(pRight->X - XEnd + 1);
 
@@ -995,6 +992,13 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 	}
 
 	int X = XStart;
+
+	bitmap += pLeft->Y * rowstride;
+	// write out pixels 32 at a time
+	uint32_t mask = 0;
+	uint32_t* p = (uint32_t*)bitmap + X / 32;
+	uint32_t color = 0;
+
 	while (Subdivisions-- > 0)
 	{
 		ZRight = 1 / OneOverZRight;
@@ -1012,11 +1016,15 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
 
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
-			int bit_mask = 1 << (7 - (X & 7));
-			if (checker)
-				bitmap[X / 8] &= ~bit_mask;
-			else
-				bitmap[X / 8] |= bit_mask;
+
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = checker ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
+			//int bit_mask = 1 << (7 - (X & 7));
+			//if (checker)
+			//	bitmap[X / 8] &= ~bit_mask;
+			//else
+			//	bitmap[X / 8] |= bit_mask;
 
 #if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
@@ -1035,6 +1043,13 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			X++;
 			U += DeltaU;
 			V += DeltaV;
+
+			if (X % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
 		}
 
 		ZLeft = ZRight;
@@ -1068,11 +1083,16 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			int VInt = (V * 5 * 64 + Gradients->dUdXModifier) >> 16;
 
 			bool checker = ((UInt & 63) >= 32) != ((VInt & 63) >= 32);
-			int bit_mask = 1 << (7 - (X & 7));
-			if (checker)
-				bitmap[X / 8] &= ~bit_mask;
-			else
-				bitmap[X / 8] |= bit_mask;
+
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = checker ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
+
+			//int bit_mask = 1 << (7 - (X & 7));
+			//if (checker)
+			//	bitmap[X / 8] &= ~bit_mask;
+			//else
+			//	bitmap[X / 8] |= bit_mask;
 #if DEBUG_CHECKER_RENDER
 			uint8_t* dbg = plat_gfx_get_debug_frame();
 			if (dbg)
@@ -1090,8 +1110,18 @@ static void DrawScanLine_suba(uint8_t* bitmap, int rowstride, const gradients_fx
 			X++;
 			U += DeltaU;
 			V += DeltaV;
+
+			if (X % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
+
 		}
 	}
+
+	_drawMaskPattern(p, swap(mask), swap(color));
 }
 
 
