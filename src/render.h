@@ -65,6 +65,7 @@ enum DrawStyle {
 	// 102ms device, fl_fl_div, perspective correct derivatives, write each bit
 	// 71ms device, fx_fl_sub, interpolate Y derivatives along whole edge
 	// 60ms device, calc spacing at vertices, interpolate
+	// 56ms device, simpler spacing interpolation
 	Draw_Dither3D_Scanline,
 
 	// 605ms device, 5.8ms PC

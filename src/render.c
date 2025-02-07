@@ -1210,10 +1210,10 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 	int X = line.x_start;
 	bitmap += edge_l->Y * rowstride;
 
-	const float lerp_step = 1.0f / (line.x_end - line.x_start);
-	float lerper = 0.0f;
 	const float spacing_l = spc_l->sz / edge_l->invz;
 	const float spacing_r = spc_r->sz / edge_r->invz;
+	const float spacing_step = (spacing_r - spacing_l) / (line.x_end - line.x_start);
+	float spacing = spacing_l;
 
 	while (raster_scanline_spans_continue(&line))
 	{
@@ -1223,8 +1223,6 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 		{
 			float uu = Fixed16_16ToFloat(line.U);
 			float vv = Fixed16_16ToFloat(line.V);
-			float spacing = lerp(spacing_l, spacing_r, lerper);
-			lerper += lerp_step;
 
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
@@ -1237,6 +1235,7 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 				bitmap[X / 8] |= bit_mask;
 
 			X++;
+			spacing += spacing_step;
 			raster_scanline_inner_step(&line);
 		}
 		raster_scanline_spans_step(&line);
@@ -1248,8 +1247,6 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 		{
 			float uu = Fixed16_16ToFloat(line.U);
 			float vv = Fixed16_16ToFloat(line.V);
-			float spacing = lerp(spacing_l, spacing_r, lerper);
-			lerper += lerp_step;
 
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
@@ -1262,6 +1259,7 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 				bitmap[X / 8] |= bit_mask;
 
 			X++;
+			spacing += spacing_step;
 			raster_scanline_inner_step(&line);
 		}
 	}
