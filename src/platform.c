@@ -528,6 +528,7 @@ static const char* kSokolFragSource =
 // HLSL / Metal
 #ifdef SOKOL_METAL
 "#include <metal_stdlib>\n"
+"#define lerp mix\n"
 "using namespace metal;\n"
 "struct v2f { float2 uv; };\n"
 "fragment float4 fs_main(v2f i [[stage_in]], texture2d<float> tex [[texture(0)]], texture2d<float> dbgtex [[texture(1)]])\n"
