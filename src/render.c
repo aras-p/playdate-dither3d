@@ -1310,8 +1310,8 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			//else
 			//	bitmap[X / 8] |= bit_mask;
 			mask |= 0x80000000u >> (X & 31);
-			uint32_t texpix = check ? 0x0 : 0x80;
-			color |= (texpix << 24) >> (X % 32);
+			uint32_t texpix = check ? 0x0 : 0x80000000u;
+			color |= texpix >> (X & 31);
 
 
 			X++;
@@ -1346,8 +1346,8 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			//else
 			//	bitmap[X / 8] |= bit_mask;
 			mask |= 0x80000000u >> (X & 31);
-			uint32_t texpix = check ? 0x0 : 0x80;
-			color |= (texpix << 24) >> (X % 32);
+			uint32_t texpix = check ? 0x0 : 0x80000000u;
+			color |= texpix >> (X & 31);
 
 			X++;
 			spacing += spacing_step;

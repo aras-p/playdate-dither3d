@@ -22,7 +22,7 @@ texture coordinate interpolation:
 | ![Screenshot](/img/250131b-checker-side.png?raw=true "Screenshot") | ![Screenshot](/img/250131c-checker-side-persp.png?raw=true "Screenshot") |
 
 Current status:
-- The really simple scene in the first image runs at **20 frames per second** on a Playdate. Initially I had it running at 1.5FPS.
+- The really simple scene in the first image runs at **22 frames per second** on a Playdate. Initially I had it running at 1.5FPS.
   Currently it has some simplifications and behavior changes compared to full Rune's technique:
   - Dot spacing is fixed (6.0), contrast is fixed (1.0), size variability too (0.0).
   - Dither pattern is 4x4 Bayer one, but with texture XY resolution reduced twice (i.e. 3D texture is 32x32x16).
@@ -30,9 +30,9 @@ Current status:
 - I have two rasterizer approaches:
   - Traditional "scanline" one, very much like in Chris Hecker's 1995/1996 article series. Perspective correct
     UV interpolation is done every 8 pixels. The dither pattern spacing is calculated only at triangle vertices
-    and interpolated across. Runs at 48ms/frame, code in `draw_triangle_dither3d_scanline`.
+    and interpolated across. Runs at 45ms/frame, code in `draw_triangle_dither3d_scanline`.
   - Halfspace/barycentric one, processing 2x2 pixel blocks in one iteration, and doing perspective
-    correct UV interpolation every 2 pixels horizontally. Runs at 63ms/frame, code in `draw_triangle_dither3d_halfspace`.
+    correct UV interpolation every 2 pixels horizontally. Runs at 60ms/frame, code in `draw_triangle_dither3d_halfspace`.
 - It is entirely possible that there's a ton of low hanging fruit w.r.t. optimizations that I have
   overlooked so far.
 
