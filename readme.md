@@ -5,9 +5,9 @@ technique, where the dither dots "stick" to 3D surfaces, yet the dot density ada
 level.
 
 Some people have asked whether this would be a good technique for [Playdate](https://play.date/), given that the screen
-is one-bit color. And so I had to try it out! Here's a video, which of course Youtube compression absolutely garbles:
+is one-bit color. And so I had to try it out! Here's a video:
 
-[![Surface-Stable Fractal Dithering on Playdate](https://img.youtube.com/vi/ocVQCDVJFOY/0.jpg)](https://www.youtube.com/watch?v=ocVQCDVJFOY)
+[![Surface-Stable Fractal Dithering on Playdate](https://img.youtube.com/vi/zhkAIKEHeV0/0.jpg)](https://www.youtube.com/watch?v=zhkAIKEHeV0)
 
 **My impression: not practical, really**. Playdate hardware is like a PC from 1995 - no GPU at all, one fairly simple CPU
 core. As such, it can do fairly simple 3D rendering (well, you need to write the whole rasterizer on the CPU),
