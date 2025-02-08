@@ -55,6 +55,8 @@ set (DEMO_SOURCES
 	src/mathlib.h
 	src/platform.c
 	src/platform.h
+	src/rasterizer_halfspace.h
+	src/rasterizer_scanline.h
 	src/render.c
 	src/render.h
 	src/fx_meshes.c

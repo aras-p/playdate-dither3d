@@ -6,12 +6,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if defined(_MSC_VER)
-#  define FORCE_INLINE static __forceinline
-#else
-#  define FORCE_INLINE static inline __attribute__((always_inline)) __attribute__((__unused__))
-#endif
-
 #define SCREEN_X	400
 #define SCREEN_Y	240
 #define SCREEN_STRIDE_BYTES 52

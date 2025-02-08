@@ -6,6 +6,14 @@
 #include <stdbool.h>
 #include <math.h>
 
+
+#if defined(_MSC_VER)
+#  define FORCE_INLINE static __forceinline
+#else
+#  define FORCE_INLINE static inline __attribute__((always_inline)) __attribute__((__unused__))
+#endif
+
+
 #if TARGET_PLAYDATE
 static inline float _lib3d_sqrtf(float x)
 {
