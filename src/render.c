@@ -1285,6 +1285,11 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 
 	int X = line.x_start;
 	bitmap += edge_l->Y * rowstride;
+	// write out pixels 32 at a time
+	uint32_t mask = 0;
+	uint32_t* p = (uint32_t*)bitmap + X / 32;
+	uint32_t color = 0;
+
 
 	const fixed16_16 spacing_l = FloatToFixed16_16(spc_l->sz / edge_l->invz);
 	const fixed16_16 spacing_r = FloatToFixed16_16(spc_r->sz / edge_r->invz);
@@ -1304,15 +1309,27 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			//dbg = patternScaleLevel_i / 16.0f;
 			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
 			bool check = do_pixel_sample_16_16(line.U, line.V, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
-			int bit_mask = 1 << (7 - (X & 7));
-			if (check)
-				bitmap[X / 8] &= ~bit_mask;
-			else
-				bitmap[X / 8] |= bit_mask;
+
+			//int bit_mask = 1 << (7 - (X & 7));
+			//if (check)
+			//	bitmap[X / 8] &= ~bit_mask;
+			//else
+			//	bitmap[X / 8] |= bit_mask;
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = check ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
+
 
 			X++;
 			spacing += spacing_step;
 			raster_scanline_inner_step(&line);
+
+			if (X % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
 		}
 		raster_scanline_spans_step(&line);
 	}
@@ -1328,17 +1345,30 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			//dbg = patternScaleLevel_i / 16.0f;
 			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
 			bool check = do_pixel_sample_16_16(line.U, line.V, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
-			int bit_mask = 1 << (7 - (X & 7));
-			if (check)
-				bitmap[X / 8] &= ~bit_mask;
-			else
-				bitmap[X / 8] |= bit_mask;
+
+			//int bit_mask = 1 << (7 - (X & 7));
+			//if (check)
+			//	bitmap[X / 8] &= ~bit_mask;
+			//else
+			//	bitmap[X / 8] |= bit_mask;
+			mask |= 0x80000000u >> (X & 31);
+			uint32_t texpix = check ? 0x0 : 0x80;
+			color |= (texpix << 24) >> (X % 32);
 
 			X++;
 			spacing += spacing_step;
 			raster_scanline_inner_step(&line);
+
+			if (X % 32 == 0)
+			{
+				_drawMaskPattern(p++, swap(mask), swap(color));
+				mask = 0;
+				color = 0;
+			}
 		}
 	}
+
+	_drawMaskPattern(p, swap(mask), swap(color));
 }
 
 static void spacing_gradients_init(spacing_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const tri_gradients* grad, const float spacingMul)

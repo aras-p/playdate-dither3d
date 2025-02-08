@@ -30,7 +30,7 @@ Current status:
 - I have two rasterizer approaches:
   - Traditional "scanline" one, very much like in Chris Hecker's 1995/1996 article series. Perspective correct
     UV interpolation is done every 8 pixels. The dither pattern spacing is calculated only at triangle vertices
-    and interpolated across. Runs at 50ms/frame, code in `draw_triangle_dither3d_scanline`.
+    and interpolated across. Runs at 48ms/frame, code in `draw_triangle_dither3d_scanline`.
   - Halfspace/barycentric one, processing 2x2 pixel blocks in one iteration, and doing perspective
     correct UV interpolation every 2 pixels horizontally. Runs at 63ms/frame, code in `draw_triangle_dither3d_halfspace`.
 - It is entirely possible that there's a ton of low hanging fruit w.r.t. optimizations that I have
