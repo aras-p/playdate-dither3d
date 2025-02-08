@@ -546,7 +546,7 @@ static const char* kSokolFragSource =
 #else
 "  float pix = tex.Load(int3(x>>3, y, 0)).x;\n"
 "  float4 dbgpix = dbgtex.Load(int3(x, y, 0));\n"
-"  dbgpix.rgb = pow(dbgpix.rgb, 1.0/2.2);\n"
+"  dbgpix.rgb = pow(abs(dbgpix.rgb), 1.0/2.2);\n"
 #endif
 "  uint val = uint(pix * 255.5);\n"
 "  uint mask = 1 << (7 - (x & 7));\n"
