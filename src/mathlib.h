@@ -28,6 +28,21 @@ static inline uint32_t swap(uint32_t n)
 #endif
 }
 
+static inline int highest_bit(uint32_t x)
+{
+	if (x == 0)
+		return -1;
+#if _MSC_VER
+	unsigned long res = 0;
+	_BitScanReverse(&res, x);
+	return (int)res;
+#elif __clang__ || __GNUC__ || __GCC__
+	return 31 - __builtin_clz(x);
+#else
+#error Unknown platform
+#endif
+}
+
 // https://en.wikipedia.org/wiki/Fast_inverse_square_root
 inline float fast_rsqrt(float x)
 {

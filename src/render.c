@@ -1039,9 +1039,9 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		// bw
 		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
 
-		dbg.x = debug_val;
-		dbg.y = -debug_val;
-		dbg.z = 0;
+		//dbg.x = debug_val;
+		//dbg.y = -debug_val;
+		//dbg.z = 0;
 
 		const int offset = (y * SCREEN_X + x) * 4 + 0;
 		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
@@ -1098,6 +1098,22 @@ FORCE_INLINE int get_dither3d_level_fraction(float spacing, int *r_patternScaleL
 	return subLayer_i * DITHER_RES;
 }
 
+FORCE_INLINE int get_dither3d_level_fraction_16_16(fixed16_16 spacing, int* r_patternScaleLevel_i)
+{
+	// As above, but in fixed point:
+	// - the scale level (log2 of input) is index of highest set bit, positive or negative compared to 16
+	// - fraction is the bits after that
+
+	int level = highest_bit(spacing) - 16;
+	fixed16_16 fraction = (level >= 0) ? (spacing >> level) : (spacing << -level);
+	fraction &= 0xFFFF;
+	*r_patternScaleLevel_i = level;
+
+	fraction = fraction * 3 / 4 + 0x800;
+	int subLayer = fraction >> 12;
+	return subLayer * DITHER_RES;
+}
+
 
 void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
 {
@@ -1152,7 +1168,9 @@ void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const floa
 			//dbg = state.dvdx * 15;
 			//dbg = state.dudy * 15;
 			//dbg = state.dvdy * 15;
-			dbg = spacing;
+			//dbg = spacing;
+			dbg = patternScaleLevel_i / 16.0f;
+			dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
 			if (state.inside_00)
 			{
 				bool check = do_pixel_sample(state.u_00, state.v_00, patternScaleLevel_i, subLayer_offset, compare_val, state.x, state.y, dbg);
@@ -1210,10 +1228,10 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 	int X = line.x_start;
 	bitmap += edge_l->Y * rowstride;
 
-	const float spacing_l = spc_l->sz / edge_l->invz;
-	const float spacing_r = spc_r->sz / edge_r->invz;
-	const float spacing_step = (spacing_r - spacing_l) / (line.x_end - line.x_start);
-	float spacing = spacing_l;
+	const fixed16_16 spacing_l = FloatToFixed16_16(spc_l->sz / edge_l->invz);
+	const fixed16_16 spacing_r = FloatToFixed16_16(spc_r->sz / edge_r->invz);
+	const fixed16_16 spacing_step = (spacing_r - spacing_l) / (line.x_end - line.x_start);
+	fixed16_16 spacing = spacing_l;
 
 	while (raster_scanline_spans_continue(&line))
 	{
@@ -1225,8 +1243,11 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			float vv = Fixed16_16ToFloat(line.V);
 
 			int patternScaleLevel_i;
-			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
-			float dbg = spacing;
+			const int subLayer_offset = get_dither3d_level_fraction_16_16(spacing, &patternScaleLevel_i);
+			float dbg = 0.0f;
+			//dbg = Fixed16_16ToFloat(spacing);
+			//dbg = patternScaleLevel_i / 16.0f;
+			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
 			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
@@ -1249,8 +1270,11 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 			float vv = Fixed16_16ToFloat(line.V);
 
 			int patternScaleLevel_i;
-			const int subLayer_offset = get_dither3d_level_fraction(spacing, &patternScaleLevel_i);
-			float dbg = spacing;
+			const int subLayer_offset = get_dither3d_level_fraction_16_16(spacing, &patternScaleLevel_i);
+			float dbg = 0.0f;
+			//dbg = Fixed16_16ToFloat(spacing);
+			//dbg = patternScaleLevel_i / 16.0f;
+			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
 			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
