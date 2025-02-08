@@ -66,6 +66,7 @@ enum DrawStyle {
 	// 71ms device, fx_fl_sub, interpolate Y derivatives along whole edge
 	// 60ms device, calc spacing at vertices, interpolate
 	// 56ms device, simpler spacing interpolation
+	// 50ms device, directly do 3D lookup math from fixed point UVs
 	Draw_Dither3D_Scanline,
 
 	// 605ms device, 5.8ms PC

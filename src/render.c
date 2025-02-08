@@ -996,6 +996,7 @@ static inline float adjust_float_exp(float x, int i)
 
 // Note: no RADIAL_COMPENSATION
 #define DITHER_RES (32) // Note: upstream used 64
+#define DITHER_RES_SHIFT (5)
 #define DITHER_RES_MASK (DITHER_RES-1)
 #define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
 #define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
@@ -1017,10 +1018,6 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 	const int v3d = (unsigned)((int)(vv * DITHER_RES)) & DITHER_RES_MASK;
 	const int texel_idx = (subLayer_offset + v3d) * DITHER_RES + u3d;
 	const uint8_t pattern = s_dither4x4_r[texel_idx];
-	// Get the pattern value relative to the threshold, scale it
-	// according to the contrast, and add the base value.
-	// Note: the terms are slightly reassociated compared to upstream, since
-	// we only need to threshold the result.
 
 #if 0
 	uint8_t* debug_output = plat_gfx_get_debug_frame();
@@ -1034,7 +1031,7 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		dbg.x = fract(uu), dbg.y = fract(vv);
 
 		// pattern
-		dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+		//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
 
 		// bw
 		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
@@ -1050,6 +1047,67 @@ FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patter
 		debug_output[offset + 3] = 255;
 	}
 #endif
+
+	// Get the pattern value relative to the threshold, scale it
+	// according to the contrast, and add the base value.
+	// Note: the terms are slightly reassociated compared to upstream, since
+	// we only need to threshold the result.
+	return pattern < compare;
+}
+
+FORCE_INLINE bool do_pixel_sample_16_16(fixed16_16 u, fixed16_16 v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y, const float debug_val)
+{
+	// Get the UV coordinates in the current fractal level.
+	if (patternScaleLevel_i >= 0) {
+		u >>= patternScaleLevel_i;
+		v >>= patternScaleLevel_i;
+	}
+	else {
+		u <<= -patternScaleLevel_i;
+		v <<= -patternScaleLevel_i;
+	}
+
+	// Sample the 3D texture
+	const int u3d = (u >> (16 - DITHER_RES_SHIFT)) & DITHER_RES_MASK;
+	const int v3d = (v >> (16 - DITHER_RES_SHIFT)) & DITHER_RES_MASK;
+	const int texel_idx = (subLayer_offset + v3d) * DITHER_RES + u3d;
+	const uint8_t pattern = s_dither4x4_r[texel_idx];
+
+#if 0
+	uint8_t* debug_output = plat_gfx_get_debug_frame();
+	if (debug_output) {
+		float3 dbg = (float3){ 0,0,0 };
+
+		// UV
+		//dbg.x = fract(u), dbg.y = fract(v);
+
+		// fractal UV
+		//dbg.x = fract(uu), dbg.y = fract(vv);
+		dbg.x = u3d / (float)DITHER_RES;
+		dbg.y = v3d / (float)DITHER_RES;
+
+		// pattern
+		//dbg.x = dbg.y = dbg.z = pattern / 255.0f;
+
+		// bw
+		//dbg.x = dbg.y = dbg.z = pattern < compare ? 0.0f : 1.0f;
+
+		//dbg.x = debug_val;
+		//dbg.y = -debug_val;
+		//dbg.z = 0;
+
+		const int offset = (y * SCREEN_X + x) * 4 + 0;
+		debug_output[offset + 0] = (uint8_t)(saturate(dbg.x) * 255.0f);
+		debug_output[offset + 1] = (uint8_t)(saturate(dbg.y) * 255.0f);
+		debug_output[offset + 2] = (uint8_t)(saturate(dbg.z) * 255.0f);
+		debug_output[offset + 3] = 255;
+	}
+#endif
+
+	// Get the pattern value relative to the threshold, scale it
+	// according to the contrast, and add the base value.
+	// Note: the terms are slightly reassociated compared to upstream, since
+	// we only need to threshold the result.
 	return pattern < compare;
 }
 
@@ -1239,16 +1297,13 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 
 		for (int i = 0; i < kAffineLength; i++)
 		{
-			float uu = Fixed16_16ToFloat(line.U);
-			float vv = Fixed16_16ToFloat(line.V);
-
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction_16_16(spacing, &patternScaleLevel_i);
 			float dbg = 0.0f;
 			//dbg = Fixed16_16ToFloat(spacing);
 			//dbg = patternScaleLevel_i / 16.0f;
 			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
-			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
+			bool check = do_pixel_sample_16_16(line.U, line.V, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
 				bitmap[X / 8] &= ~bit_mask;
@@ -1266,16 +1321,13 @@ static void draw_scanline_dither3d(uint8_t* bitmap, int rowstride,
 		raster_scanline_rem_begin(&line, grad, edge_r);
 		for (int i = 0; i <= line.aff_remainder; i++)
 		{
-			float uu = Fixed16_16ToFloat(line.U);
-			float vv = Fixed16_16ToFloat(line.V);
-
 			int patternScaleLevel_i;
 			const int subLayer_offset = get_dither3d_level_fraction_16_16(spacing, &patternScaleLevel_i);
 			float dbg = 0.0f;
 			//dbg = Fixed16_16ToFloat(spacing);
 			//dbg = patternScaleLevel_i / 16.0f;
 			//dbg = subLayer_offset / (float)(DITHER_RES * DITHER_SLICES);
-			bool check = do_pixel_sample(uu, vv, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
+			bool check = do_pixel_sample_16_16(line.U, line.V, patternScaleLevel_i, subLayer_offset, compare_val, X, edge_l->Y, dbg);
 			int bit_mask = 1 << (7 - (X & 7));
 			if (check)
 				bitmap[X / 8] &= ~bit_mask;
