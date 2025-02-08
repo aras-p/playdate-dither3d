@@ -23,7 +23,8 @@ texture coordinate interpolation:
 |-|-|
 | ![Screenshot](/img/250131b-checker-side.png?raw=true "Screenshot") | ![Screenshot](/img/250131c-checker-side-persp.png?raw=true "Screenshot") |
 
-Current status:
+### Current Status
+
 - The really simple scene in the first image runs at **22 frames per second** on a Playdate. Initially I had it running at 1.5FPS.
   Currently it has some simplifications and behavior changes compared to full Rune's technique:
   - Dot spacing is fixed (6.0), contrast is fixed (1.0), size variability too (0.0).
@@ -40,6 +41,20 @@ Current status:
 
 Most of the code layout and structure is taken from [Everybody Wants to Crank the World](https://github.com/aras-p/demo-pd-cranktheworld)
 demo I made in 2024. As such, it compiles on Playdate, and on PC as well (via Sokol).
+
+### Application Controls
+
+- Crank (playdate) / Mouse scroll wheel (PC) orbits the camera,
+- Up/Down moves camera closer / further,
+- A toggles wireframe (default off)
+- B toggles between "real scene" (default) or "unit test" scene that I was testing the rasterizers with
+- Left/Right toggles between different rendering techniques, indicated by `a:` number in the upper timings line:
+  - 0: scanline rasterizer with simple dither pattern,
+  - 1: scanline rasterizer with blue noise dither pattern,
+  - 2: scanline rasterizer with checkerboard based on UVs,
+  - 3: halfspace rasterizer with checkerboard based on UVs,
+  - 4: scanline rasterizer with Dither3D effect (default),
+  - 5: halfspace rasterizer with Dither3D effect.
 
 ### License
 
