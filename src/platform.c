@@ -573,6 +573,7 @@ static const char* kSokolFragSource =
 "  int y = int(uv.y * 240.0);\n"
 "  float pix = texelFetch(tex, ivec2(x>>3, y), 0).x;\n"
 "  vec4 dbgpix = texelFetch(dbgtex, ivec2(x, y), 0);\n"
+"  dbgpix.rgb = pow(abs(dbgpix.rgb), vec3(1.0/2.2));\n"
 "  uint val = uint(pix * 255.5);\n"
 "  uint mask = uint(1 << (7 - (int(x) & 7)));\n"
 "  frag_color = ((val & mask) != 0u) ? vec4(0.694, 0.686, 0.659, 1.0) : vec4(0.192, 0.184, 0.157, 1.0);\n"
