@@ -47,19 +47,23 @@ enum DrawStyle {
 	// 15ms ditherpattern from mini3d
 	// 19ms generic scanline rasterizer, that fills scanlines with dither pattern (but still has per-row overhead of UVs etc.)
 	// 18ms hecker raster
+	// 16ms device, cull triangles before sort
 	Draw_Pattern,
 
 	// 31ms bluenoise dither, rasterizer loop from mini3
 	// 33ms bluenoise dither, generic scanline rasterizer loop (more per-row overhead)
 	// 24ms no bluenoise screen buffer; use the bluenoise thresholding directly in rasterizer
 	// 24ms hecker raster
+	// 22ms device, cull triangles before sort
 	Draw_Bluenoise,
 
 	// 34ms device, 0.43ms PC, based on Chris Hecker's fx_fl_sub, write 32 pixels
 	// 31ms device, edge Y check simplifications
+	// 29ms device, cull triangles before sort
 	Draw_Checker_Scanline,
 
 	// 53ms device, 0.75ms PC, halfspace
+	// 51ms device, cull triangles before sort
 	Draw_Checker_Halfspace,
 
 	// 102ms device, fl_fl_div, perspective correct derivatives, write each bit
@@ -68,6 +72,7 @@ enum DrawStyle {
 	// 56ms device, simpler spacing interpolation
 	// 50ms device, directly do 3D lookup math from fixed point UVs
 	// 48ms device, write 32 pixels
+	// 45ms device, cull triangles before sort
 	Draw_Dither3D_Scanline,
 
 	// 605ms device, 5.8ms PC
@@ -83,6 +88,7 @@ enum DrawStyle {
 	// 74ms device, skip rest of row once we get out of triangle
 	// 65ms device, simplify sampled pattern comparison
 	// 63ms device, 0.92ms PC, small micro opts
+	// 60ms device, cull triangles before sort
 	Draw_Dither3D_Halfspace,
 	Draw_Count
 };

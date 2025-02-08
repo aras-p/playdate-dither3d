@@ -1799,37 +1799,6 @@ static Pattern patterns[] =
 
 void drawShapeFace(const Scene* scene, uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float3* normal, const Mesh* mesh, int tri_index, enum DrawStyle style, bool wire)
 {
-	// If any vertex is behind the camera, skip it
-	if (p1->z <= 0 || p2->z <= 0 || p3->z <= 0)
-		return;
-
-	float x1 = p1->x;
-	float y1 = p1->y;
-	float x2 = p2->x;
-	float y2 = p2->y;
-	float x3 = p3->x;
-	float y3 = p3->y;
-
-	// quick bounds check
-	if ((x1 < 0 && x2 < 0 && x3 < 0) ||
-		(x1 >= SCREEN_X && x2 >= SCREEN_X && x3 >= SCREEN_X) ||
-		(y1 < 0 && y2 < 0 && y3 < 0) ||
-		(y1 >= SCREEN_Y && y2 >= SCREEN_Y && y3 >= SCREEN_Y))
-		return;
-
-	// only render front side of faces via winding order
-	float dx21 = x2 - x1;
-	float dy31 = y3 - y1;
-	float dx31 = x3 - x1;
-	float dy21 = y2 - y1;
-	float d = dx21 * dy31 - dy21 * dx31;
-	if (d >= 0)
-		return;
-
-	//float kSmallPx = 8.0f;
-	//if (fabsf(dx21) < kSmallPx && fabsf(dy31) < kSmallPx && fabsf(dx31) < kSmallPx && fabsf(dy21) < kSmallPx)
-	//	return;
-
 	// lighting
 	float v = v3_dot(*normal, scene->light) * 0.5f + 0.5f;
 	//v = normal->z * 0.5f + 0.5f;
@@ -1945,12 +1914,54 @@ void scene_drawMesh(Scene* scene, uint8_t* buffer, int rowstride, const Mesh* me
 		}
 	}
 
+	// backface / z / screen bounds cull triangles
+	int vis_tri_count = 0;
+	ibPtr = mesh->tris;
+	for (int i = 0; i < mesh->tri_count; ++i, ibPtr += 3)
+	{
+		uint16_t idx0 = ibPtr[0];
+		uint16_t idx1 = ibPtr[1];
+		uint16_t idx2 = ibPtr[2];
+		const float3* p0 = &scene->tmp_points[idx0];
+		const float3* p1 = &scene->tmp_points[idx1];
+		const float3* p2 = &scene->tmp_points[idx2];
+
+		// If any vertex is behind the camera, skip it
+		if (p0->z <= 0 || p1->z <= 0 || p2->z <= 0)
+			continue;
+
+		// quick bounds check
+		float x1 = p0->x;
+		float y1 = p0->y;
+		float x2 = p1->x;
+		float y2 = p1->y;
+		float x3 = p2->x;
+		float y3 = p2->y;
+		if ((x1 < 0 && x2 < 0 && x3 < 0) ||
+			(x1 >= SCREEN_X && x2 >= SCREEN_X && x3 >= SCREEN_X) ||
+			(y1 < 0 && y2 < 0 && y3 < 0) ||
+			(y1 >= SCREEN_Y && y2 >= SCREEN_Y && y3 >= SCREEN_Y))
+			continue;
+
+		// only render front side of faces via winding order
+		float dx21 = x2 - x1;
+		float dy31 = y3 - y1;
+		float dx31 = x3 - x1;
+		float dy21 = y2 - y1;
+		float d = dx21 * dy31 - dy21 * dx31;
+		if (d >= 0)
+			continue;
+
+		scene->tmp_order_table[vis_tri_count] = i;
+		++vis_tri_count;
+	}
+
 	// sort faces by z
 	s_facesort_instance = scene;
-	qsort(scene->tmp_order_table, mesh->tri_count, sizeof(scene->tmp_order_table[0]), compareFaceZ);
+	qsort(scene->tmp_order_table, vis_tri_count, sizeof(scene->tmp_order_table[0]), compareFaceZ);
 
 	// draw faces
-	for (int i = 0; i < mesh->tri_count; ++i)
+	for (int i = 0; i < vis_tri_count; ++i)
 	{
 		uint16_t fi = scene->tmp_order_table[i];
 		uint16_t idx0 = mesh->tris[fi * 3 + 0];
