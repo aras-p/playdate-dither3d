@@ -12,6 +12,8 @@
 #include <stdlib.h>
 
 static uint8_t* s_blue_noise;
+uint8_t* s_dither2x2_r;
+uint8_t* s_dither2x2_g;
 uint8_t* s_dither4x4_r;
 uint8_t* s_dither4x4_g;
 
@@ -117,6 +119,22 @@ void init_pixel_ops()
 		if (ww != SCREEN_X || hh != SCREEN_Y) {
 			plat_free(s_blue_noise);
 			s_blue_noise = NULL;
+		}
+	}
+	{
+		int ww, hh;
+		s_dither2x2_r = read_tga_file_grayscale("Dither3D_2x2.tga", &ww, &hh);
+		if (ww != 32 || hh != 128) {
+			plat_free(s_dither2x2_r);
+			s_dither2x2_r = NULL;
+		}
+	}
+	{
+		int ww, hh;
+		s_dither2x2_g = read_tga_file_grayscale("Dither3D_2x2_Ramp.tga", &ww, &hh);
+		if (ww != 32 || hh != 1) {
+			plat_free(s_dither2x2_g);
+			s_dither2x2_g = NULL;
 		}
 	}
 	{

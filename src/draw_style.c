@@ -132,6 +132,30 @@ void draw_tri_bluenoise_scanline(uint8_t* bitmap, int rowstride, const float3* p
 // We use 4x4 dither pattern, but reduced texture XY resolution
 // And a bunch of other simplifications
 
+// 2: 2x2
+// 4: 4x4 (2x reduced XY resolution)
+#define DITHER_USE_PATTERN 2
+
+#if DITHER_USE_PATTERN == 2
+#	define DITHER_RES (32)
+#	define DITHER_RES_SHIFT (5)
+#	define DITHER_RES_MASK (DITHER_RES-1)
+#	define DITHER_DOTS_PER_SIDE (DITHER_RES/16)
+#	define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
+#	define DITHER_SCALE (6.5f)
+#	define DITHER_SCALE_EXP (90.5f) // exp2f(DITHER_SCALE)
+#elif DITHER_USE_PATTERN == 4
+#	define DITHER_RES (32) // Note: upstream used 64
+#	define DITHER_RES_SHIFT (5)
+#	define DITHER_RES_MASK (DITHER_RES-1)
+#	define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
+#	define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
+#	define DITHER_SCALE (6.0f)
+#	define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
+#else
+#	error Define DITHER_USE_PATTERN to 2 or 4
+#endif
+
 
 // equivalent to `x / exp2f((float)i)`, provided we are not in
 // infinities / subnormals territory.
@@ -145,16 +169,6 @@ static inline float adjust_float_exp(float x, int i)
 	fu.u -= (uint32_t)i << 23;
 	return fu.f;
 }
-
-// Note: no RADIAL_COMPENSATION
-#define DITHER_RES (32) // Note: upstream used 64
-#define DITHER_RES_SHIFT (5)
-#define DITHER_RES_MASK (DITHER_RES-1)
-#define DITHER_DOTS_PER_SIDE (4) // Note: upstream used (DITHER_RES/16)
-#define DITHER_SLICES (DITHER_DOTS_PER_SIDE * DITHER_DOTS_PER_SIDE)
-
-#define DITHER_SCALE (6.0f)
-#define DITHER_SCALE_EXP (64.0f) // exp2f(DITHER_SCALE)
 
 FORCE_INLINE bool do_pixel_sample(const float u, const float v, const int patternScaleLevel_i, const int subLayer_offset, const int compare, const int x, const int y, const float debug_val)
 {
