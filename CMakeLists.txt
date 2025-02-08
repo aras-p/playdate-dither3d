@@ -48,6 +48,8 @@ set(PLAYDATE_GAME_DEVICE Playdate_RenderTest_DEVICE)
 project(${PLAYDATE_GAME_NAME} C ASM)
 
 set (DEMO_SOURCES
+	src/draw_style.c
+	src/draw_style.h
 	src/globals.c
 	src/globals.h
 	src/main.c
