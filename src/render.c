@@ -199,11 +199,11 @@ typedef struct tri_gradients {
 	float inv_det;
 } tri_gradients;
 
-static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
+static void tri_gradients_init(tri_gradients* t, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
 {
 	const float det = ((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y));
-	if ((int)det == 0)
-		return false; // zero area
+	//if ((int)det == 0)
+	//	return false; // zero area
 
 	t->inv_det = 1.0f / det;
 	float invdx = t->inv_det;
@@ -241,7 +241,6 @@ static bool tri_gradients_init(tri_gradients* t, const float3* p0, const float3*
 
 	t->vz_dx = invdx * (((t->vz[1] - t->vz[2]) * y02) - ((t->vz[0] - t->vz[2]) * y12));
 	t->vz_dy = invdy * (((t->vz[1] - t->vz[2]) * x02) - ((t->vz[0] - t->vz[2]) * x12));
-	return true;
 }
 
 typedef struct tri_edge_uv {
@@ -525,48 +524,45 @@ typedef struct raster_scanline_uv_t
 	int v_top, v_mid, v_bottom;
 } raster_scanline_uv_t;
 
-FORCE_INLINE bool raster_scanline_simple_begin(raster_scanline_simple_t* st, const float3* p0, const float3* p1, const float3* p2)
+FORCE_INLINE void raster_scanline_simple_begin(raster_scanline_simple_t* st, const float3* p0, const float3* p1, const float3* p2)
 {
 	int v_top, v_mid, v_bottom;
 	st->mid_is_left = tri_sort_vertices(p0, p1, p2, &v_top, &v_mid, &v_bottom);
 
 	// triangle outside of Y range?
-	const float y_top = v_top == 0 ? p0->y : (v_top == 1 ? p1->y : p2->y);
-	if (y_top >= SCREEN_Y) return false;
-	const float y_bottom = v_bottom == 0 ? p0->y : (v_bottom == 1 ? p1->y : p2->y);
-	if (y_bottom < 0.0f) return false;
+	//const float y_top = v_top == 0 ? p0->y : (v_top == 1 ? p1->y : p2->y);
+	//if (y_top >= SCREEN_Y) return false;
+	//const float y_bottom = v_bottom == 0 ? p0->y : (v_bottom == 1 ? p1->y : p2->y);
+	//if (y_bottom < 0.0f) return false;
 
 	// zero area?
-	const float det = ((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y));
-	if ((int)det == 0)
-		return false; 
+	//const float det = ((p1->x - p2->x) * (p0->y - p2->y)) - ((p0->x - p2->x) * (p1->y - p2->y));
+	//if ((int)det == 0)
+	//	return false; 
 
 	tri_edge_init(&st->e_top_bottom, p0, p1, p2, v_top, v_bottom);
 	tri_edge_init(&st->e_top_mid, p0, p1, p2, v_top, v_mid);
 	tri_edge_init(&st->e_mid_bottom, p0, p1, p2, v_mid, v_bottom);
 
 	st->e_left = st->e_right = NULL;
-	return true;
 }
 
-FORCE_INLINE bool raster_scanline_uv_begin(raster_scanline_uv_t* st, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
+FORCE_INLINE void raster_scanline_uv_begin(raster_scanline_uv_t* st, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const float uv_scale)
 {
 	st->mid_is_left = tri_sort_vertices(p0, p1, p2, &st->v_top, &st->v_mid, &st->v_bottom);
 
 	// triangle outside of Y range?
-	const float y_top = st->v_top == 0 ? p0->y : (st->v_top == 1 ? p1->y : p2->y);
-	if (y_top >= SCREEN_Y) return false;
-	const float y_bottom = st->v_bottom == 0 ? p0->y : (st->v_bottom == 1 ? p1->y : p2->y);
-	if (y_bottom < 0.0f) return false;
+	//const float y_top = st->v_top == 0 ? p0->y : (st->v_top == 1 ? p1->y : p2->y);
+	//if (y_top >= SCREEN_Y) return false;
+	//const float y_bottom = st->v_bottom == 0 ? p0->y : (st->v_bottom == 1 ? p1->y : p2->y);
+	//if (y_bottom < 0.0f) return false;
 
-	if (!tri_gradients_init(&st->grad, p0, p1, p2, uvs, uv_scale))
-		return false; // zero area
+	tri_gradients_init(&st->grad, p0, p1, p2, uvs, uv_scale);
 	tri_edge_uv_init(&st->e_top_bottom, &st->grad, p0, p1, p2, st->v_top, st->v_bottom);
 	tri_edge_uv_init(&st->e_top_mid, &st->grad, p0, p1, p2, st->v_top, st->v_mid);
 	tri_edge_uv_init(&st->e_mid_bottom, &st->grad, p0, p1, p2, st->v_mid, st->v_bottom);
 
 	st->e_left = st->e_right = NULL;
-	return true;
 }
 
 FORCE_INLINE int raster_scanline_simple_begin1(raster_scanline_simple_t* st)
@@ -662,8 +658,7 @@ FORCE_INLINE void draw_scanline_pattern(uint8_t* bitmap, int rowstride, const tr
 static void draw_triangle_pattern_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const uint8_t* pattern)
 {
 	raster_scanline_simple_t tri;
-	if (!raster_scanline_simple_begin(&tri, p0, p1, p2))
-		return;
+	raster_scanline_simple_begin(&tri, p0, p1, p2);
 
 	int height = raster_scanline_simple_begin1(&tri);
 	while (height--) {
@@ -710,8 +705,7 @@ FORCE_INLINE void draw_scanline_bluenoise(uint8_t* bitmap, int rowstride, const 
 static void draw_triangle_bluenoise_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const uint8_t tri_color)
 {
 	raster_scanline_simple_t tri;
-	if (!raster_scanline_simple_begin(&tri, p0, p1, p2))
-		return;
+	raster_scanline_simple_begin(&tri, p0, p1, p2);
 
 	int height = raster_scanline_simple_begin1(&tri);
 	while (height--) {
@@ -805,16 +799,18 @@ typedef struct raster_halfspace_state_t
 // decides to not inline some of them as soon as one than more call site is present, drastically reducing
 // performance on Playdate.
 
-FORCE_INLINE bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
+FORCE_INLINE void raster_halfspace_begin(raster_halfspace_t* hs, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
 {
 	// convert coordinates to fixed point
 	int x1 = to_fixed(p1->x), y1 = to_fixed(p1->y);
 	int x2 = to_fixed(p2->x), y2 = to_fixed(p2->y);
 	int x3 = to_fixed(p3->x), y3 = to_fixed(p3->y);
+
+	// Note: do not check winding order or fully outside of screen; that is checked in calling code
 	// check triangle winding order
-	int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
-	if (det == 0)
-		return false; // zero area
+	//int det = det2x2(x2 - x1, x3 - x1, y2 - y1, y3 - y1);
+	//if (det == 0)
+	//	return false; // zero area
 	//if (det > 0)
 	//	return false; // wrong winding
 
@@ -823,8 +819,8 @@ FORCE_INLINE bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p
 	hs->miny = max2(fixed_ceil(min3(y1, y2, y3)), 0);
 	hs->maxx = min2(fixed_ceil(max3(x1, x2, x3)), SCREEN_X);
 	hs->maxy = min2(fixed_ceil(max3(y1, y2, y3)), SCREEN_Y);
-	if (hs->minx >= hs->maxx || hs->miny >= hs->maxy)
-		return false;
+	//if (hs->minx >= hs->maxx || hs->miny >= hs->maxy)
+	//	return false;
 
 	// Edge vectors
 	hs->dx12 = x1 - x2, hs->dy12 = y2 - y1;
@@ -848,7 +844,6 @@ FORCE_INLINE bool raster_halfspace_begin(raster_halfspace_t* hs, const float3* p
 	hs->uv1x = uvs[0] * hs->invz1, hs->uv1y = uvs[1] * hs->invz1;
 	hs->uv2x = uvs[2] * hs->invz2, hs->uv2y = uvs[3] * hs->invz2;
 	hs->uv3x = uvs[4] * hs->invz3, hs->uv3y = uvs[5] * hs->invz3;
-	return true;
 }
 
 FORCE_INLINE void raster_halfspace_y_begin(const raster_halfspace_t* hs, raster_halfspace_state_t* state)
@@ -1176,8 +1171,7 @@ FORCE_INLINE int get_dither3d_level_fraction_16_16(fixed16_16 spacing, int* r_pa
 void draw_triangle_dither3d_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6], const uint8_t brightness)
 {
 	raster_halfspace_t hs;
-	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
-		return;
+	raster_halfspace_begin(&hs, p1, p2, p3, uvs);
 
 	// Lookup brightness to make dither output have correct output
 	// brightness at different input brightness values.
@@ -1425,8 +1419,7 @@ FORCE_INLINE void spacing_edge_step(tri_edge_uv* t, spacing_edge* s)
 static void draw_triangle_dither3d_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6], const uint8_t brightness)
 {
 	raster_scanline_uv_t tri;
-	if (!raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 1.0f))
-		return;
+	raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 1.0f);
 
 	// Lookup brightness to make dither output have correct output
 	// brightness at different input brightness values.
@@ -1575,8 +1568,7 @@ static void draw_scanline_checker(uint8_t* bitmap, int rowstride, const tri_grad
 static void draw_triangle_checker_scanline(uint8_t* bitmap, int rowstride, const float3* p0, const float3* p1, const float3* p2, const float uvs[6])
 {
 	raster_scanline_uv_t tri;
-	if (!raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 5.0f))
-		return;
+	raster_scanline_uv_begin(&tri, p0, p1, p2, uvs, 5.0f);
 
 	int height = raster_scanline_uv_begin1(&tri);
 	while (height--) {
@@ -1619,8 +1611,7 @@ FORCE_INLINE bool do_checker(float u, float v, int x, int y)
 void draw_triangle_checker_halfspace(uint8_t* bitmap, int rowstride, const float3* p1, const float3* p2, const float3* p3, const float uvs[6])
 {
 	raster_halfspace_t hs;
-	if (!raster_halfspace_begin(&hs, p1, p2, p3, uvs))
-		return;
+	raster_halfspace_begin(&hs, p1, p2, p3, uvs);
 
 	raster_halfspace_state_t state;
 	for (raster_halfspace_y_begin(&hs, &state); raster_halfspace_y_continue(&hs, &state); raster_halfspace_y_step(&hs, &state))
