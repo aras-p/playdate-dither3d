@@ -9,6 +9,8 @@ is one-bit color. And so I had to try it out! Here's a video:
 
 [![Surface-Stable Fractal Dithering on Playdate](https://img.youtube.com/vi/zhkAIKEHeV0/0.jpg)](https://www.youtube.com/watch?v=zhkAIKEHeV0)
 
+I wrote a blog post about this whole porting and optimization journey: [**aras-p.info/blog/2025/02/09/Surface-Stable-Fractal-Dither-on-Playdate/**](https://aras-p.info/blog/2025/02/09/Surface-Stable-Fractal-Dither-on-Playdate/)
+
 **My impression: not practical, really**. Playdate hardware is like a PC from 1995 - no GPU at all, one fairly simple CPU
 core. As such, it can do fairly simple 3D rendering (well, you need to write the whole rasterizer on the CPU),
 but can barely do more than a handful of math operations per rasterized pixel. Rasterizing with screen-space fixed
